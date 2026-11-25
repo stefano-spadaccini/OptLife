@@ -158,7 +158,7 @@ public sealed class SpaceModule : IModule
             return new ActionResult(false, L.T("Non è una cartella temporanea dell'elenco.", "Not a temporary folder of the list."));
         // Looked up again now: only what is old at this very moment goes.
         var old = Old(_env.Temp(folder) ?? [], ctx.Settings.GetInt("tempDays"), ctx.Now);
-        if (old.Count == 0) return new ActionResult(true, L.T("Non c'è più niente di vecchio.", "Nothing old left."));
+        if (old.Count == 0) return ActionResult.Nothing(L.T("Non c'è più niente di vecchio.", "Nothing old left."));
         var result = _env.Recycle([.. old.Select(i => i.Path)]);
         await Check(new Forced(ctx), ct);
         return result;

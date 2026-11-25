@@ -284,7 +284,7 @@ public sealed class EmulationModule : IModule
     private async Task<ActionResult> DoInstall(IModuleContext ctx, string? argument, CancellationToken ct)
     {
         var ids = (argument ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (ids.Length == 0) return new ActionResult(true, L.T("Nessun emulatore scelto.", "No emulator chosen."));
+        if (ids.Length == 0) return ActionResult.Nothing(L.T("Nessun emulatore scelto.", "No emulator chosen."));
         var done = new List<string>();
         var failed = new List<string>();
         foreach (var id in ids)

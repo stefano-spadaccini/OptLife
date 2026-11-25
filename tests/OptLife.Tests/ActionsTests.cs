@@ -192,6 +192,77 @@ public class FixTests
         Assert.Single(vm.Findings);
     }
 
+    /// <summary>25 Nov 2026: "Sort them" pressed three times answered "ok" each time and moved nothing; the problem stayed open.</summary>
+    [Fact]
+    public async Task An_action_that_stops_at_a_choice_says_so_on_the_card_with_the_buttons_and_one_of_them_settles_it()
+    {
+        var calls = 0;
+        _pc.OnApply = (action, argument) =>
+        {
+            if (++calls == 1) return ActionResult.Choose("C'è già un'impostazione uguale.", [new FindingFix(SetupModule.SetRefresh, "Usa la nuova", "A!")]);
+            _pc.Set("display.A.mode", "2560×1440 a 165 Hz");
+            return new ActionResult(true, $"Fatto con {argument}.");
+        };
+        BreakIt();
+        await Check();
+        var vm = Panel();
+
+        await vm.FixCommand.ExecuteAsync(vm.Findings.Single());
+        await vm.Rechecking;
+        var card = vm.Findings.Single(); // Still open: nothing changed.
+        Assert.True(card.HasFeedback);
+        Assert.Equal("medium", card.Feedback!.Level);
+        Assert.StartsWith("Serve una tua scelta.", card.Feedback.Text);
+        var way = Assert.Single(card.Feedback.Needs);
+        Assert.Equal("USA LA NUOVA", way.Label);
+        var logged = _box.Store.GetActions().First();
+        Assert.Equal(ActionOutcome.Choice, logged.Outcome);
+        Assert.False(logged.Ok); // Never written down as done.
+
+        await vm.NeedCommand.ExecuteAsync(way);
+        await vm.Rechecking;
+        Assert.Equal([(SetupModule.SetRefresh, "A"), (SetupModule.SetRefresh, "A!")], _pc.Applied);
+        Assert.Empty(vm.Findings); // Looked at again at once, not at the agent's round.
+    }
+
+    [Fact]
+    public async Task Nothing_left_to_do_is_said_plainly_and_the_problem_closes_at_once_if_it_is_gone()
+    {
+        _pc.OnApply = (_, _) =>
+        {
+            _pc.Set("display.A.mode", "2560×1440 a 165 Hz"); // Put right by hand meanwhile.
+            return ActionResult.Nothing("lo schermo è già al massimo.");
+        };
+        BreakIt();
+        await Check();
+        var vm = Panel();
+
+        var item = vm.Findings.Single();
+        var press = vm.FixCommand.ExecuteAsync(item);
+        await press;
+        Assert.StartsWith("Niente da fare: lo schermo è già al massimo.", vm.Notice);
+        Assert.False(vm.NoticeIsError);
+        await vm.Rechecking;
+        Assert.Empty(vm.Findings);
+        Assert.Equal(ActionOutcome.Nothing, _box.Store.GetActions().First().Outcome);
+
+        vm.ShowCommand.Execute("Actions");
+        Assert.Equal("NIENTE DA FARE", vm.ActionLog.First().Outcome);
+    }
+
+    [Fact]
+    public void Outcomes_are_four_and_never_confused()
+    {
+        Assert.Equal(ActionOutcome.Done, new ActionResult(true, "x").Outcome);
+        Assert.Equal(ActionOutcome.Failed, new ActionResult(false, "x").Outcome);
+        Assert.Equal(ActionOutcome.Nothing, ActionResult.Nothing("x").Outcome);
+        Assert.True(ActionResult.Nothing("x").Ok);
+        var choice = ActionResult.Choose("x", [new FindingFix("a", "A")]);
+        Assert.Equal(ActionOutcome.Choice, choice.Outcome);
+        Assert.False(choice.Ok);
+        Assert.Equal(ActionOutcome.Choice, (choice with { Undo = "u" }).Outcome);
+    }
+
     [Fact]
     public async Task An_action_set_to_never_has_no_button()
     {

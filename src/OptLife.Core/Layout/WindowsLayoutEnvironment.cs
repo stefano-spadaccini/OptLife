@@ -12,6 +12,8 @@ public interface ILayoutEnvironment
     /// <summary>The fixed drives that are ready ("C:\", "E:\").</summary>
     IReadOnlyList<string> Drives();
 
+    bool FileExists(string path) => File.Exists(LayoutPaths.Expand(path));
+
     /// <summary>Folders at the top of a drive, without the hidden system ones.</summary>
     IReadOnlyList<string> TopFolders(string root);
 
@@ -367,7 +369,7 @@ public sealed class WindowsLayoutEnvironment : ILayoutEnvironment
 
     public ActionResult RemoveOld(string path)
     {
-        if (!Directory.Exists(path)) return new ActionResult(true, L.T("Non c'era più.", "It was already gone."));
+        if (!Directory.Exists(path)) return ActionResult.Nothing(L.T("Non c'era più.", "It was already gone."));
         var op = new SHFILEOPSTRUCT { wFunc = FO_DELETE, pFrom = path + "\0\0", fFlags = (ushort)(FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING) };
         var code = SHFileOperation(ref op);
         return code == 0 && !op.fAnyOperationsAborted && !Directory.Exists(path)

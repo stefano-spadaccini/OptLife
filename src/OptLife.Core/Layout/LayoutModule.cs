@@ -248,6 +248,7 @@ public sealed partial class LayoutModule : IModule
                 // A place of the layout, inside one, or holding one (E:\Giochi when games are in E:\Giochi\Repack): in its place.
                 if (places.Any(p => LayoutPaths.Within(folder, p) || LayoutPaths.Within(p, folder))) continue;
                 if (LayoutPaths.Within(AppContext.BaseDirectory, folder)) continue; // OptLife itself.
+                if (_env.FileExists(Path.Combine(folder, "OptLife-README.txt"))) continue; // A folder OptLife made (C:\BIOS): in its place.
                 var item = LayoutScan.Judge(_env.Inspect(folder, measure: false), refs, choices);
                 if (item.Risk == Risk.Safe) item = LayoutScan.Judge(_env.Inspect(folder, measure: true), refs, choices);
                 items.Add(item);
@@ -404,7 +405,7 @@ public sealed partial class LayoutModule : IModule
         }
         ctx.SetState(AppliedKey, choices.Preset);
         await Check(new Forced(ctx), ct);
-        if (made.Count == 0 && added.Count == 0 && failed.Count == 0) return new ActionResult(true, L.T("Cartelle e regole erano già tutte a posto.", "Folders and rules were all in place already.") + HubStillPending(ctx));
+        if (made.Count == 0 && added.Count == 0 && failed.Count == 0) return ActionResult.Nothing(L.T("Cartelle e regole erano già tutte a posto.", "Folders and rules were all in place already.") + HubStillPending(ctx));
         var parts = new List<string>();
         if (made.Count > 0) parts.Add(L.T("Cartelle create: ", "Folders created: ") + string.Join(", ", made) + ".");
         if (added.Count > 0) parts.Add(L.T("Regole aggiunte: ", "Rules added: ") + string.Join("; ", added) + ".");
@@ -433,7 +434,7 @@ public sealed partial class LayoutModule : IModule
         var forced = raw.Where(p => p.StartsWith('!')).Select(p => p[1..]).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var wanted = raw.Select(p => p.TrimStart('!')).ToArray();
         var confirm = (ctx.GetState("confirm") is { } c ? JsonSerializer.Deserialize<List<string>>(c) : null) ?? [];
-        if (wanted.Length == 0) return new ActionResult(true, L.T("Nessuna cartella scelta.", "No folder chosen."));
+        if (wanted.Length == 0) return ActionResult.Nothing(L.T("Nessuna cartella scelta.", "No folder chosen."));
         // Judged again now: only what is still safe moves, whatever was ticked or typed.
         var outside = Outside(ctx);
         var done = new List<string>();
@@ -595,7 +596,7 @@ public sealed partial class LayoutModule : IModule
         var plan = HubPlan(ctx);
         var wanted = (argument ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries).Where(a => a.StartsWith("op:", StringComparison.Ordinal))
             .Select(a => int.TryParse(a[3..], out var i) ? i : -1).Where(i => i >= 0 && i < plan.Count).ToHashSet();
-        if (wanted.Count == 0) return new ActionResult(true, L.T("Nessun passo scelto.", "No step chosen."));
+        if (wanted.Count == 0) return ActionResult.Nothing(L.T("Nessun passo scelto.", "No step chosen."));
         var oldSections = Choices(ctx).HubSections.ToList();
         try { if (File.Exists(_configFile)) File.Copy(_configFile, $"{_configFile}.bak-hub-{ctx.Now.ToLocalTime():yyyyMMdd-HHmm}", overwrite: true); }
         catch (IOException) { }

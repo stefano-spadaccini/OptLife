@@ -708,9 +708,23 @@
                                                     <Run Text="{Binding SeverityLabel, Mode=OneWay, Converter={StaticResource Sentence}}"/><Run Text=" · "/><Run Text="{Binding DetailShort, Mode=OneWay}"/>
                                                 </TextBlock>
                                             </StackPanel>
-                                            <Button Grid.Column="2" Style="{StaticResource BtnGhost}" Content="{Binding FixLabel}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                            <Button Grid.Column="2" VerticalAlignment="Center" Margin="12,0,0,0"
+                                                    AutomationProperties.Name="{Binding FixLabel}"
+                                                    IsEnabled="{Binding Feedback.Idle, FallbackValue=True}"
+                                                    ToolTip="{Binding Feedback.Text}"
                                                     Command="{Binding DataContext.FixCommand, ElementName=TopList}" CommandParameter="{Binding}"
-                                                    Visibility="{Binding HasFix, Converter={StaticResource Vis}}"/>
+                                                    Visibility="{Binding HasFix, Converter={StaticResource Vis}}">
+                                                <Button.Style>
+                                                    <Style TargetType="Button" BasedOn="{StaticResource BtnGhost}">
+                                                        <Setter Property="Content" Value="{Binding FixLabel}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Feedback.Busy}" Value="True">
+                                                                <Setter Property="Content" Value="{local:T 'IN CORSO…', 'WORKING…'}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -886,14 +900,48 @@
                                                         <TextBlock TextWrapping="Wrap" LineHeight="20" Margin="0,6,0,0" Visibility="{Binding HasAdvice, Converter={StaticResource Vis}}">
                                                             <Run Text="{local:T 'Cosa fare: ', 'What to do: '}" FontWeight="SemiBold"/><Run Text="{Binding Advice, Mode=OneWay}"/>
                                                         </TextBlock>
+                                                        <!-- What its button did: working, done, nothing to do, not done, or the choice with its buttons -->
+                                                        <Border Margin="0,10,0,0" Padding="10,8" CornerRadius="{DynamicResource Radius.Control}" BorderThickness="1" BorderBrush="{DynamicResource Outline.Strong}"
+                                                                Background="{DynamicResource Surface.Overlay}" Visibility="{Binding HasFeedback, Converter={StaticResource Vis}}">
+                                                            <StackPanel>
+                                                                <StackPanel Orientation="Horizontal">
+                                                                    <TextBlock Style="{StaticResource LevelIcon}" Tag="{Binding Feedback.Level}" Margin="0,1,8,0" VerticalAlignment="Top"/>
+                                                                    <TextBlock Text="{Binding Feedback.Text}" TextWrapping="Wrap" MaxWidth="620" AutomationProperties.LiveSetting="Assertive"/>
+                                                                </StackPanel>
+                                                                <ItemsControl ItemsSource="{Binding Feedback.Needs}" Focusable="False" Margin="0,8,0,0"
+                                                                              Visibility="{Binding Feedback.HasNeeds, Converter={StaticResource Vis}, FallbackValue=Collapsed}">
+                                                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                                                    <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate>
+                                                                            <Button Style="{StaticResource BtnGhost}" Content="{Binding Label}" Margin="0,0,8,6"
+                                                                                    Command="{Binding DataContext.NeedCommand, ElementName=FindingsList}" CommandParameter="{Binding}"
+                                                                                    AutomationProperties.Name="{Binding Label}"/>
+                                                                        </DataTemplate>
+                                                                    </ItemsControl.ItemTemplate>
+                                                                </ItemsControl>
+                                                            </StackPanel>
+                                                        </Border>
                                                         <TextBlock Text="{Binding Footer}" Style="{StaticResource Secondary}" FontSize="12" Margin="0,8,0,0" Foreground="{DynamicResource Text.Muted}"/>
                                                     </StackPanel>
                                                     </Grid>
                                                     <StackPanel VerticalAlignment="Top" HorizontalAlignment="Left" MinWidth="120">
-                                                        <Button Style="{StaticResource BtnPrimary}" Content="{Binding FixLabel}" Margin="0,0,0,8"
+                                                        <Button Margin="0,0,0,8"
                                                                 ToolTip="{local:T 'OptLife lo sistema per te; resta scritto nel registro delle azioni', 'OptLife fixes it for you; it stays written in the action log'}"
+                                                                AutomationProperties.Name="{Binding FixLabel}"
+                                                                IsEnabled="{Binding Feedback.Idle, FallbackValue=True}"
                                                                 Command="{Binding DataContext.FixCommand, ElementName=FindingsList}" CommandParameter="{Binding}"
-                                                                Visibility="{Binding HasFix, Converter={StaticResource Vis}}"/>
+                                                                Visibility="{Binding HasFix, Converter={StaticResource Vis}}">
+                                                            <Button.Style>
+                                                                <Style TargetType="Button" BasedOn="{StaticResource BtnPrimary}">
+                                                                    <Setter Property="Content" Value="{Binding FixLabel}"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding Feedback.Busy}" Value="True">
+                                                                            <Setter Property="Content" Value="{local:T 'IN CORSO…', 'WORKING…'}"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Button.Style>
+                                                        </Button>
                                                         <Button Style="{StaticResource BtnGhost}" Content="{local:T Risolto, Solved}" Margin="0,0,0,8"
                                                                 ToolTip="{local:T 'La causa è sistemata: si chiude adesso e si riapre solo se succede di nuovo', 'The cause is fixed: it closes now and reopens only if it happens again'}"
                                                                 AutomationProperties.HelpText="{local:T 'La causa è sistemata: si chiude adesso e si riapre solo se succede di nuovo', 'The cause is fixed: it closes now and reopens only if it happens again'}"
@@ -1092,13 +1140,27 @@
                 <StackPanel Margin="0,0,0,24">
                     <Border Margin="0,0,0,14" Padding="12,9" CornerRadius="{DynamicResource Radius.Control}" BorderThickness="1" BorderBrush="{DynamicResource Outline.Strong}"
                             Background="{DynamicResource Surface.Overlay}" Visibility="{Binding Notice, Converter={StaticResource Vis}}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Style="{StaticResource LevelIcon}" Margin="0,0,10,0">
-                                <TextBlock.Tag>
-                                    <Binding Path="NoticeIsError" Converter="{StaticResource NoticeLevel}"/>
-                                </TextBlock.Tag>
-                            </TextBlock>
-                            <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource LevelIcon}" Margin="0,0,10,0">
+                                    <TextBlock.Tag>
+                                        <Binding Path="NoticeIsError" Converter="{StaticResource NoticeLevel}"/>
+                                    </TextBlock.Tag>
+                                </TextBlock>
+                                <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"/>
+                            </StackPanel>
+                            <!-- The ways out of a choice the action stopped at, right here -->
+                            <ItemsControl ItemsSource="{Binding Feedback.Needs}" Focusable="False" Margin="0,8,0,0"
+                                          Visibility="{Binding Feedback.HasNeeds, Converter={StaticResource Vis}, FallbackValue=Collapsed}">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Style="{StaticResource BtnGhost}" Content="{Binding Label}" Margin="0,0,8,6"
+                                                Command="{Binding DataContext.NeedCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                AutomationProperties.Name="{Binding Label}"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                     </Border>
 

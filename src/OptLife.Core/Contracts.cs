@@ -224,8 +224,36 @@ public sealed record ModuleAction(
     bool NeverAuto = false,
     Func<IModuleContext, IReadOnlyList<ActionChoice>>? Choices = null);
 
+/// <summary>How an action ended, in the four ways the person must be able to tell apart.</summary>
+public enum ActionOutcome
+{
+    /// <summary>It changed what it was asked to.</summary>
+    Done,
+    /// <summary>It could not, and says why.</summary>
+    Failed,
+    /// <summary>There was nothing to do any more (already done, gone meanwhile): not a success to boast about, not an error.</summary>
+    Nothing,
+    /// <summary>It stopped before changing anything because the person must choose: <see cref="ActionResult.Needs"/> are the ways out.</summary>
+    Choice,
+}
+
 /// <param name="Undo">How to revert the action, in words or as a command; null when not reversible.</param>
-public sealed record ActionResult(bool Ok, string Detail, string? Undo = null);
+public sealed record ActionResult(bool Ok, string Detail, string? Undo = null)
+{
+    /// <summary>The buttons of the choice the person must make, each an action of the same module (with its argument).</summary>
+    public IReadOnlyList<FindingFix>? Needs { get; init; }
+
+    /// <summary>Nothing was changed because nothing was left to do.</summary>
+    public bool Unchanged { get; init; }
+
+    public ActionOutcome Outcome => Needs is { Count: > 0 } ? ActionOutcome.Choice : !Ok ? ActionOutcome.Failed : Unchanged ? ActionOutcome.Nothing : ActionOutcome.Done;
+
+    /// <summary>Nothing left to do: said plainly, never as "done".</summary>
+    public static ActionResult Nothing(string detail) => new(true, detail) { Unchanged = true };
+
+    /// <summary>Stopped before changing anything: the person picks one of these.</summary>
+    public static ActionResult Choose(string detail, IReadOnlyList<FindingFix> ways) => new(false, detail) { Needs = ways };
+}
 
 public enum SettingKind { Bool, Int, Text, List, Choice }
 

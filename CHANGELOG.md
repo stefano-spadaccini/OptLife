@@ -5,6 +5,26 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Fixed
+- Every action now says what really happened: done, nothing to do, not done (and why), or a choice is needed. A choice
+  (for example a shortcut with the same name already in the Hub) is offered right on the card.
+- Buttons show "in progress" and stay off while they work; a problem is checked again at once after its action and closes
+  without waiting for the agent.
+- A program started by its own Windows service (for example Wallpaper Engine) is recognised as a start-up program.
+- Store app shortcuts are no longer reported as broken.
+- winget updates keep a program in its own folder (`--location`); emulators followed by the Emulation page are no longer
+  updated by winget as well.
+
+### Added
+- PC settings → BIOS: PREPARE THE FOLDER creates a folder (`C:\BIOS` or a USB stick) with a note for the update, recognises
+  the right file and, once the new version runs, offers to send the files to the Recycle Bin.
+
+## [0.1.1]
+
+- First release published on GitHub.
+
 ## [0.1.0] — first public version
 
 ### Added

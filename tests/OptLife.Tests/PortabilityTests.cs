@@ -146,6 +146,34 @@ public sealed class PortabilityTests : IDisposable
         Assert.False(Broken(@"\\nas\share\tool.exe", "", null));                                          // The network.
     }
 
+    /// <summary>25 Nov 2026: Wallpaper Engine starts through a service whose own file is in System32; the program is in its arguments.</summary>
+    [Fact]
+    public void The_program_a_service_starts_is_found_also_behind_a_launcher_in_system32()
+    {
+        const string windows = @"C:\WINDOWS";
+        Assert.Equal(@"C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\wallpaper64.exe",
+            OptLife.Modules.Startup.StartupRules.ServiceProgram(@"""C:\WINDOWS\system32\wallpaperservice64.exe"" -p ""C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\wallpaper64.exe""", windows));
+        Assert.Equal(@"C:\Program Files\Thing\thing.exe", OptLife.Modules.Startup.StartupRules.ServiceProgram(@"""C:\Program Files\Thing\thing.exe"" --service", windows));
+        Assert.Null(OptLife.Modules.Startup.StartupRules.ServiceProgram(@"C:\WINDOWS\system32\svchost.exe -k netsvcs -p", windows)); // Windows' own.
+    }
+
+    [Fact]
+    public async Task A_folder_optlife_made_itself_is_not_news_on_the_drive()
+    {
+        var pc = new FakeCleanupEnvironment();
+        pc.Folders[@"C:\"] = ["Windows", "Users"];
+        var cleanup = new CleanupModule(pc);
+        Set("cleanup", "watch", new[] { @"C:\ | Games go in E:\Games." });
+        Assert.True(await _box.Runner.RunTaskAsync(cleanup, cleanup.Tasks[0], CancellationToken.None)); // First look: the reference.
+
+        pc.Folders[@"C:\"].AddRange(["BIOS", "Altro"]);
+        pc.Folders[@"C:\BIOS"] = [OptLife.Modules.Updates.BiosFolder.Note];
+        pc.Folders[@"C:\Altro"] = ["file.txt"];
+        Assert.True(await _box.Runner.RunTaskAsync(cleanup, cleanup.Tasks[0], CancellationToken.None));
+        var news = _box.Store.GetFindings().Where(f => f.Key.StartsWith("new|")).Select(f => f.Title).ToList();
+        Assert.Equal([@"Nuovo in C:\: Altro"], news);
+    }
+
     // ── Ways of keeping the Desktop ──────────────────────────────────────────
 
     private (LayoutModule Layout, IModule[] Modules) Layout()

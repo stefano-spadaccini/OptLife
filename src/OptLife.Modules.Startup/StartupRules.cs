@@ -222,9 +222,23 @@ public static class StartupRules
 
     public static string ViaServiceText => L.T("Acceso (tramite servizio)", "On (via a service)");
 
+    /// <summary>
+    /// The program a service really starts: its own file when it is outside Windows' folder, otherwise the first program outside it
+    /// named in its arguments. Some programs install a small launcher in System32 that starts them: Wallpaper Engine's service is
+    /// "C:\Windows\system32\wallpaperservice64.exe -p "…\wallpaper_engine\wallpaper64.exe"" (25 Nov 2026, the program looked missing).
+    /// Null for Windows' own services.
+    /// </summary>
+    public static string? ServiceProgram(string imagePath, string windowsFolder)
+    {
+        var windows = windowsFolder.TrimEnd('\\') + "\\";
+        var paths = System.Text.RegularExpressions.Regex.Matches(imagePath, "\"([^\"]+?\\.exe)\"|([A-Za-z]:\\\\[^\" ]+?\\.exe)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            .Select(m => Environment.ExpandEnvironmentVariables(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value)).ToList();
+        return paths.FirstOrDefault(p => Path.IsPathRooted(p) && !p.StartsWith(windows, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static string MissingAdvice => L.T(
-        "Non c'è nessuna voce di avvio con questo nome: accendi \"Avvia con Windows\" nelle impostazioni del programma (o controlla che sia ancora installato).",
-        "There is no start-up entry with this name: turn on \"Start with Windows\" in the program's settings (or check it is still installed).");
+        "Non c'è nessuna voce di avvio né servizio di Windows con questo nome: accendi \"Avvia con Windows\" nelle impostazioni del programma (o controlla che sia ancora installato). Se il programma parte lo stesso, scrivi nell'elenco una parte del nome del suo file (.exe) o del suo servizio.",
+        "There is no start-up entry or Windows service with this name: turn on \"Start with Windows\" in the program's settings (or check it is still installed). If the program starts anyway, write in the list part of the name of its file (.exe) or of its service.");
 
     private static string ComesBackAdvice => L.T(
         "Molti programmi si rimettono all'avvio da soli ogni volta che li apri, se nelle loro impostazioni è acceso \"Avvia con Windows\" (o \"Apri all'accesso\"): spegnilo lì, poi premi Spegni. Senza, si riaccende.",

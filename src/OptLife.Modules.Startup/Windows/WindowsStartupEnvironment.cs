@@ -59,8 +59,8 @@ internal sealed class WindowsStartupEnvironment : IStartupEnvironment
                     using var key = root.OpenSubKey(name);
                     // Start 2 = automatic (also delayed); Type 0x10/0x20 = a program, not a driver.
                     if (key?.GetValue("Start") is not int start || start != 2 || key.GetValue("Type") is not int type || (type & 0x30) == 0) continue;
-                    if (key.GetValue("ImagePath") is not string image || ExePath(image) is not { } exe || !Path.IsPathRooted(exe)) continue;
-                    if (exe.StartsWith(windows, StringComparison.OrdinalIgnoreCase) || !File.Exists(exe)) continue;
+                    // The program it starts: its own file, or (a launcher in System32) the one named in its arguments.
+                    if (key.GetValue("ImagePath") is not string image || StartupRules.ServiceProgram(image, windows) is not { } exe || !File.Exists(exe)) continue;
                     var display = key.GetValue("DisplayName") is string d && !d.StartsWith('@') ? d : name;
                     var beside = new List<string> { Path.GetFileNameWithoutExtension(exe) };
                     try { beside.AddRange(Directory.EnumerateFiles(Path.GetDirectoryName(exe)!, "*.exe").Take(30).Select(p => Path.GetFileNameWithoutExtension(p))); }

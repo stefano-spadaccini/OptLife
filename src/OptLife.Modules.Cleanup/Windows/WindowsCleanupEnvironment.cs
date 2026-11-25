@@ -361,7 +361,7 @@ public sealed class WindowsCleanupEnvironment : ICleanupEnvironment
     public ActionResult Recycle(IReadOnlyList<string> paths)
     {
         var existing = paths.Select(Real).Where(p => Directory.Exists(p) || File.Exists(p)).ToList();
-        if (existing.Count == 0) return new ActionResult(true, L.T("Non c'era più niente da togliere.", "There was nothing left to remove."));
+        if (existing.Count == 0) return ActionResult.Nothing(L.T("Non c'era più niente da togliere.", "There was nothing left to remove."));
 
         // Windows wants the paths one after the other, each closed by a zero, and one more zero at the end.
         var operation = new SHFILEOPSTRUCT

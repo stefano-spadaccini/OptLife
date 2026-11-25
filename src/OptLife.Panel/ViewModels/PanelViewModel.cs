@@ -241,12 +241,12 @@ public sealed partial class PanelViewModel : ObservableObject
             _ => L.T("Nessun problema aperto.", "No open problems."),
         };
         // Rebuilding the list resets scrolling, so it is done only when something visible changed.
-        var signature = string.Join('|', shown.Select(f => $"{f.Id}:{f.Severity}:{f.Title}:{f.Detail}:{FixLabel(f)}:{f.LastSeen.ToUnixTimeSeconds() / 60}"));
+        var signature = string.Join('|', shown.Select(f => $"{f.Id}:{f.Severity}:{f.Title}:{f.Detail}:{FixLabel(f)}:{f.LastSeen.ToUnixTimeSeconds() / 60}:{_feedback.ContainsKey(f.Id)}"));
         if (signature != _findingsShown || Findings.Count != shown.Count)
         {
             _findingsShown = signature;
             Findings.Clear();
-            foreach (var f in shown) Findings.Add(new FindingItem(f, ModuleName(f.Module), Now, FixLabel(f)));
+            foreach (var f in shown) Findings.Add(new FindingItem(f, ModuleName(f.Module), Now, FixLabel(f), _feedback.GetValueOrDefault(f.Id)));
             // Grouped by area, in a fixed order: performance first, reminders last, anything unknown after.
             FindingSections.Clear();
             foreach (var g in Findings.GroupBy(i => i.Area)
@@ -468,27 +468,55 @@ public sealed partial class PanelViewModel : ObservableObject
     /// set to "ask first" goes ahead; afterwards the module looks again, and the problem leaves the
     /// list only if it is really gone.
     /// </summary>
-    [RelayCommand]
+    // Several problems can be put right at once: each card guards its own button (ActionFeedback.Busy).
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task FixAsync(FindingItem item)
     {
         var finding = _store.GetFindings(includeClosed: true).FirstOrDefault(f => f.Id == item.Id);
-        if (finding is null || FindFix(finding) is not { } fix || IsChecking) return;
-        IsChecking = true;
-        var ok = false;
+        if (finding is null || FindFix(finding) is not { } fix) return;
+        await RunForFindingAsync(finding.Id, finding.Title, fix.Module, fix.Action, finding.Fix!.Argument);
+    }
+
+    /// <summary>A button of a choice an action stopped at: it runs on the same problem, with the same feedback.</summary>
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task NeedAsync(NeedButton need)
+    {
+        if (_modules.FirstOrDefault(m => m.Info.Id == need.Module) is not { } module || module.Actions.FirstOrDefault(a => a.Id == need.Fix.ActionId) is not { } action) return;
+        if (need.FindingId is { } id) await RunForFindingAsync(id, need.Fix.Label, module, action, need.Fix.Argument);
+        else if (SelectedView is { } tab && tab.Module == module) await RunButtonAsync(tab, action, need.Fix.Argument);
+    }
+
+    /// <summary>What each problem's button did last in this panel, by problem number (the cards are rebuilt at every refresh).</summary>
+    private readonly Dictionary<long, ActionFeedback> _feedback = [];
+
+    /// <summary>
+    /// The "put it right" button of one problem: working at once (the button off, so it cannot run twice), then the outcome on the
+    /// card itself — done, nothing to do, not done and why, or the choice with its buttons — and at once a new look by the module,
+    /// so the problem closes or changes without waiting for the agent. Other buttons stay usable meanwhile.
+    /// </summary>
+    private async Task RunForFindingAsync(long id, string what, IModule module, ModuleAction action, string? argument)
+    {
+        if (_feedback.TryGetValue(id, out var running) && running.Busy) return;
+        var feedback = ActionFeedback.Working(action.Name);
+        _feedback[id] = feedback;
+        Refresh();
+        ActionResult result;
         try
         {
-            var result = await Task.Run(() => _runner.RunActionAsync(fix.Module, fix.Action, "pannello", confirmed: true, finding.Fix!.Argument, CancellationToken.None));
-            (Notice, NoticeIsError) = ((result.Ok ? L.T("Fatto. ", "Done. ") : L.T("Non riuscito. ", "Failed. ")) + result.Detail, !result.Ok);
-            ok = result.Ok;
+            result = await Task.Run(() => _runner.RunActionAsync(module, action, "pannello", confirmed: true, argument, CancellationToken.None));
         }
-        finally
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            IsChecking = false;
-            Refresh();
+            result = new ActionResult(false, ex.Message);
         }
+        feedback.Show(result, module.Info.Id, id);
+        // Also said at the top of the page: the card may close right after, and the result must not vanish with it.
+        (Notice, NoticeIsError) = (feedback.Text, result.Outcome is ActionOutcome.Failed or ActionOutcome.Choice);
+        Refresh();
         // The module looks again behind, and the panel stays free meanwhile: a full look can take minutes (the Cleanup weighs whole
-        // drives when asked), and on 23 Nov 2026 every other button stayed dead until it ended.
-        if (ok) Rechecking = RecheckAsync(fix.Module);
+        // drives when asked), and on 23 Nov 2026 every other button stayed dead until it ended. Whatever the outcome: on 25 Nov a
+        // problem fixed by hand stayed open until the agent's round.
+        Rechecking = RecheckAsync(module);
     }
 
     /// <summary>The look that follows a fix, running behind; the tests wait for it.</summary>
@@ -498,6 +526,9 @@ public sealed partial class PanelViewModel : ObservableObject
     {
         foreach (var task in module.Tasks.Where(t => !t.Continuous))
             await Task.Run(() => _runner.RunTaskAsync(module, task, CancellationToken.None, onDemand: true));
+        // A problem that is gone needs no feedback any more; one still open keeps it (a choice waits on its card).
+        var open = _store.GetFindings().Select(f => f.Id).ToHashSet();
+        foreach (var gone in _feedback.Keys.Where(k => !open.Contains(k) && !_feedback[k].Busy).ToList()) _feedback.Remove(gone);
         Refresh();
     }
 
@@ -520,7 +551,13 @@ public sealed partial class PanelViewModel : ObservableObject
 
     private async Task PressInnerAsync(ButtonItem item)
     {
-        if (SelectedView is not { } tab || IsChecking) return;
+        if (SelectedView is not { } tab) return;
+        if (IsChecking)
+        {
+            // Never a press that does nothing without a word.
+            (tab.Notice, tab.NoticeIsError) = (L.T("Aspetta: c'è già un'azione in corso su questa pagina.", "Wait: an action is already running on this page."), true);
+            return;
+        }
         if (tab.Module.Actions.FirstOrDefault(a => a.Id == item.Button.ActionId) is not { } action)
         {
             (tab.Notice, tab.NoticeIsError) = (L.T("Questa azione non esiste più.", "This action no longer exists."), true);
@@ -578,11 +615,19 @@ public sealed partial class PanelViewModel : ObservableObject
     private async Task RunButtonAsync(ViewTab tab, ModuleAction action, string? argument)
     {
         IsChecking = true;
-        tab.Notice = L.T("In corso…", "In progress…");
+        var feedback = ActionFeedback.Working(action.Name);
+        tab.Feedback = feedback;
+        (tab.Notice, tab.NoticeIsError) = (feedback.Text, false);
         try
         {
             var result = await Task.Run(() => _runner.RunActionAsync(tab.Module, action, "pannello", confirmed: true, argument, CancellationToken.None));
-            (tab.Notice, tab.NoticeIsError) = ((result.Ok ? L.T("Fatto. ", "Done. ") : L.T("Non riuscito. ", "Failed. ")) + result.Detail, !result.Ok);
+            feedback.Show(result, tab.Module.Info.Id, null);
+            (tab.Notice, tab.NoticeIsError) = (feedback.Text, result.Outcome is ActionOutcome.Failed or ActionOutcome.Choice);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            feedback.Show(new ActionResult(false, ex.Message), tab.Module.Info.Id, null);
+            (tab.Notice, tab.NoticeIsError) = (feedback.Text, true);
         }
         finally
         {
@@ -590,6 +635,8 @@ public sealed partial class PanelViewModel : ObservableObject
             // The module rewrote its page after the action: show it now, not at the next tick.
             Refresh();
         }
+        // Then its problems are looked at again behind, so one put right from a page closes now, not at the agent's round.
+        Rechecking = RecheckAsync(tab.Module);
     }
 
     /// <summary>"Check now" on a module's page: that module only, here and now, then the page is read again.</summary>

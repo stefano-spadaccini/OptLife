@@ -160,7 +160,7 @@ public sealed class ToolsModule : IModule
         var wanted = (argument ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         // Only the driver's own cache folders, whatever was passed.
         var folders = _env.ShaderCaches().Where(c => wanted.Contains(c.Path, StringComparer.OrdinalIgnoreCase)).Select(c => c.Path).ToList();
-        return folders.Count == 0 ? new ActionResult(true, L.T("Nessuna cartella scelta: non ho tolto niente.", "No folder chosen: nothing removed.")) : _env.RecycleContents(folders);
+        return folders.Count == 0 ? ActionResult.Nothing(L.T("Nessuna cartella scelta: non ho tolto niente.", "No folder chosen: nothing removed.")) : _env.RecycleContents(folders);
     }
 
     public IReadOnlyList<ModuleView> Views =>
@@ -202,7 +202,7 @@ public sealed class ToolsModule : IModule
     {
         var wanted = (argument ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (wanted.Count == 0) return new ActionResult(true, L.T("Nessun programma scelto: non ho chiuso niente.", "No program chosen: I closed nothing."));
+        if (wanted.Count == 0) return ActionResult.Nothing(L.T("Nessun programma scelto: non ho chiuso niente.", "No program chosen: I closed nothing."));
         // The list is read again now: only what is still a candidate is closed, never something protected meanwhile.
         var apps = Candidates(ctx).Select(c => c.App).Where(a => wanted.Contains(a.Root.Name)).ToList();
         if (apps.Count == 0) return new ActionResult(true, L.T("I programmi scelti non sono più aperti.", "The chosen programs are no longer open."));

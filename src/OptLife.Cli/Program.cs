@@ -320,9 +320,19 @@ async Task<int> Do()
 
     var result = await rt.Runner.RunActionAsync(m, action, "cli", confirmed: args.Contains("--yes"), argument, CancellationToken.None);
     if (json) return Print(result);
-    Console.WriteLine($"{(result.Ok ? L.T("Fatto", "Done") : L.T("Non eseguita", "Not done"))}: {result.Detail}");
+    Console.WriteLine($"{result.Outcome switch
+    {
+        ActionOutcome.Done => L.T("Fatto", "Done"),
+        ActionOutcome.Nothing => L.T("Niente da fare", "Nothing to do"),
+        ActionOutcome.Choice => L.T("Serve una scelta", "A choice is needed"),
+        _ => L.T("Non eseguita", "Not done"),
+    }}: {result.Detail}");
+    // The ways out of a choice, as commands to type.
+    foreach (var way in result.Needs ?? [])
+        Console.WriteLine($"  {way.Label}: optlife do {m.Info.Id} {way.ActionId}{(way.Argument is { } a ? $" \"{a}\"" : "")} --yes");
     if (result.Undo is not null) Console.WriteLine(L.T("Per tornare indietro: ", "To undo: ") + result.Undo);
-    return result.Ok ? 0 : 1;
+    // 0 done or nothing to do, 1 not done, 2 waiting for a choice.
+    return result.Outcome switch { ActionOutcome.Done or ActionOutcome.Nothing => 0, ActionOutcome.Choice => 2, _ => 1 };
 }
 
 // What an action with a list to tick would offer, without doing anything.

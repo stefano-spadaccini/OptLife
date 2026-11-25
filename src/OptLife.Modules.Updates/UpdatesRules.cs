@@ -83,8 +83,9 @@ public static class UpdatesRules
 
     /// <summary>What may be updated without asking which: known version, whole id, not excluded, not one that updates itself.</summary>
     public static IEnumerable<AppUpdate> Updatable(IEnumerable<AppUpdate> apps, IReadOnlyList<string> exclude, IReadOnlyList<string>? selfUpdating = null, IReadOnlySet<string>? stubborn = null,
-        IReadOnlyDictionary<string, string>? needsOthers = null) =>
-        apps.Where(a => a.KnownVersion && a.WholeId && !Excluded(a, exclude) && !SelfUpdating(a, selfUpdating ?? [], stubborn) && needsOthers?.ContainsKey(a.Id) != true);
+        IReadOnlyDictionary<string, string>? needsOthers = null, IReadOnlyList<string>? managedEmulators = null) =>
+        apps.Where(a => a.KnownVersion && a.WholeId && !Excluded(a, exclude) && !SelfUpdating(a, selfUpdating ?? [], stubborn) && needsOthers?.ContainsKey(a.Id) != true
+                        && !ManagedElsewhere(a, managedEmulators));
 
     /// <summary>
     /// Programs winget keeps offering but should not update: an unknown installed version (it may reinstall from scratch), a
@@ -284,7 +285,39 @@ public static class UpdatesRules
         IReadOnlySet<string>? Stubborn = null,
         IReadOnlyList<RunResult>? LastRun = null,
         DateTimeOffset? LastRunAt = null,
-        IReadOnlyDictionary<string, string>? NeedsOthers = null);
+        IReadOnlyDictionary<string, string>? NeedsOthers = null,
+        IReadOnlyList<string>? ManagedEmulators = null);
+
+    /// <summary>
+    /// An emulator the Emulation page installs and updates itself (it keeps it in its own folder): winget must not update it too.
+    /// On 23 Nov 2026 winget reinstalled RetroArch in C:\RetroArch-Win64, away from the emulators folder.
+    /// </summary>
+    public static bool ManagedElsewhere(AppUpdate a, IReadOnlyList<string>? emulators) =>
+        emulators?.Any(e => Norm(e) is { Length: >= 4 } n && (Norm(a.Name).StartsWith(n, StringComparison.Ordinal) || Norm(a.Id).Contains(n, StringComparison.Ordinal))) == true;
+
+    private static string Norm(string s) => new([.. s.ToLowerInvariant().Where(char.IsLetterOrDigit)]);
+
+    /// <summary>
+    /// The folder a program was installed in, when it is not where installers put things by default (Program Files, the person's
+    /// AppData, ProgramData): winget must be told to update it there (--location), or the installer may put it back in its own default
+    /// folder. Null when it is in a usual place, or unknown.
+    /// </summary>
+    public static string? CustomLocation(string? installLocation, IReadOnlyList<string> usualFolders)
+    {
+        if (installLocation is not { Length: > 3 } raw) return null;
+        var path = Environment.ExpandEnvironmentVariables(raw.Trim().Trim('"')).TrimEnd('\\');
+        if (!Path.IsPathRooted(path)) return null;
+        return usualFolders.Any(u => u.Length > 0 && (path + "\\").StartsWith(u.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) ? null : path;
+    }
+
+    /// <summary>After the update the program's folder is another one: winget put it elsewhere (and the old folder may still be there).</summary>
+    public static RunResult Moved(RunResult r, string before, string after) => r with
+    {
+        Outcome = Outcome.Attention,
+        Why = L.T($"winget l'ha reinstallato in {after} invece che nella sua cartella {before}. Controlla quale dei due usi; OptLife non lo aggiornerà più con winget (si aggiorna dal programma o a mano).",
+            $"winget reinstalled it in {after} instead of its folder {before}. Check which of the two you use; OptLife will not update it with winget any more (update it from the program or by hand)."),
+        Technical = (r.Technical ?? "") + $" · InstallLocation {before} → {after}",
+    };
 
     public static string SelfGroup => L.T("Si aggiornano dal loro programma", "They update from their own program");
     public static string ExcludedGroup => L.T("Da non aggiornare", "Not to update");
@@ -356,9 +389,12 @@ public static class UpdatesRules
         foreach (var a in (x.Apps ?? []).OrderBy(a => a.Name, StringComparer.CurrentCultureIgnoreCase))
         {
             var excluded = Excluded(a, x.Exclude);
-            var self = !excluded && SelfUpdating(a, x.SelfUpdatingList ?? [], x.Stubborn);
+            var managed = !excluded && ManagedElsewhere(a, x.ManagedEmulators);
+            var self = !excluded && (managed || SelfUpdating(a, x.SelfUpdatingList ?? [], x.Stubborn));
             var value = L.T($"{a.Available} disponibile (hai {a.Installed})", $"{a.Available} available (you have {a.Installed})");
             string? advice = excluded ? L.T("Nell'elenco da non aggiornare: OptLife non lo aggiorna da solo e non lo segnala.", "In the do-not-update list: OptLife neither updates nor reports it.")
+                : managed ? L.T("È un emulatore che si aggiorna dalla pagina GIOCHI → Emulazione, nella sua cartella: winget non lo tocca, così non si aggiorna due volte né finisce altrove.",
+                    "It is an emulator updated from the GAMES → Emulation page, in its own folder: winget leaves it, so it is not updated twice nor put elsewhere.")
                 : !a.KnownVersion ? L.T("winget non sa che versione hai e lo riproporrebbe ogni volta: si aggiorna dal programma stesso.", "winget does not know which version you have and would offer it every time: it updates from the program itself.")
                 : x.NeedsOthers?.TryGetValue(a.Id, out var others) == true ? L.T($"Attenzione: aggiornandolo, winget installa anche {others}, che non hai. OptLife non lo aggiorna da solo: fallo a mano se ti va bene.", $"Careful: updating it, winget also installs {others}, which you do not have. OptLife does not update it by itself: do it by hand if that is fine.")
                 : x.Stubborn?.Contains(a.Id) == true ? L.T("Dopo l'aggiornamento winget lo elenca ancora: lo aggiorna il programma stesso (o installa la versione nuova accanto a quella vecchia).", "After the update winget still lists it: the program updates itself (or installs the new version beside the old one).")
@@ -400,7 +436,7 @@ public static class UpdatesRules
                     "Windows installs new features before they are ready for everyone: the easiest way to find programs that stop working after an update."),
                 PreviewAdvice, new FindingFix(OpenSite, L.T("Apri Windows Update", "Open Windows Update"), WindowsUpdatePage), FindingArea.Setup);
 
-        var apps = Updatable(x.Apps ?? [], x.Exclude, x.SelfUpdatingList, x.Stubborn, x.NeedsOthers).OrderBy(a => a.Id, StringComparer.OrdinalIgnoreCase).ToList();
+        var apps = Updatable(x.Apps ?? [], x.Exclude, x.SelfUpdatingList, x.Stubborn, x.NeedsOthers, x.ManagedEmulators).OrderBy(a => a.Id, StringComparer.OrdinalIgnoreCase).ToList();
         if (apps.Count > 0)
             yield return new NewFinding($"apps|{Hash(apps.Select(a => $"{a.Id}={a.Available}"))}", Severity.Low,
                 L.T($"{apps.Count} programmi da aggiornare", $"{apps.Count} programs to update"),

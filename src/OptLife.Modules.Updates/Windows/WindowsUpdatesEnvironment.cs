@@ -69,13 +69,17 @@ internal sealed class WindowsUpdatesEnvironment : IUpdatesEnvironment
     /// Installed for the person: run as the person, with the token of Explorer. After <paramref name="limit"/> winget and the
     /// installer it started are stopped (an installer waiting on a window would otherwise hold the whole run).
     /// </summary>
-    public async Task<UpgradeAttempt> WingetUpgrade(string id, AppScope scope, TimeSpan limit, CancellationToken ct)
+    public Task<UpgradeAttempt> WingetUpgrade(string id, AppScope scope, TimeSpan limit, CancellationToken ct) => WingetUpgradeAt(id, scope, null, limit, ct);
+
+    public async Task<UpgradeAttempt> WingetUpgradeAt(string id, AppScope scope, string? location, TimeSpan limit, CancellationToken ct)
     {
         if (id.Any(c => char.IsWhiteSpace(c) || c is '"' or '&' or '|' or '<' or '>'))
             return new UpgradeAttempt(null, false, L.T("id non valido", "invalid id"));
+        if (location is not null && (location.Contains('"') || !Path.IsPathRooted(location)))
+            return new UpgradeAttempt(null, false, L.T("cartella non valida", "invalid folder"));
         // No --scope: forcing one makes winget miss packages whose installer does not declare it ("nothing to update" in 3 s,
         // 23 Nov 2026). The scope only decides who runs it: the agent itself, or the person.
-        var scopeArg = "";
+        var scopeArg = location is null ? "" : $" --location \"{location}\"";
         var args = $"upgrade --id {id} --exact --silent --source winget{scopeArg} --accept-package-agreements --accept-source-agreements --disable-interactivity";
         var (wait, error) = IsElevated() && scope == AppScope.User ? AsShellUser(Winget(), args) : Plain(Winget(), args);
         if (wait is null) return new UpgradeAttempt(null, false, error);
@@ -154,6 +158,99 @@ internal sealed class WindowsUpdatesEnvironment : IUpdatesEnvironment
     }
 
     /// <summary>Whole PC or this person: from where the program is listed among the installed ones.</summary>
+    public IReadOnlyList<string>? FilesIn(string folder)
+    {
+        try
+        {
+            return Directory.Exists(folder) ? [.. Directory.EnumerateFiles(folder).Select(Path.GetFileName).OfType<string>()] : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    public ActionResult WriteNote(string folder, string text)
+    {
+        try
+        {
+            // As administrator, never through a link a user could have made (a "C:\BIOS" that leads into Windows' folders).
+            if (Protection.IsElevated() && Protection.ThroughLink(folder))
+                return new ActionResult(false, L.T($"{folder} passa attraverso un collegamento a un'altra cartella: non scrivo lì.", $"{folder} goes through a link to another folder: I do not write there."));
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, BiosFolder.Note), text, new System.Text.UTF8Encoding(true));
+            return new ActionResult(true, folder);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return new ActionResult(false, L.T($"Non riesco a scrivere in {folder}: {ex.Message}", $"Cannot write in {folder}: {ex.Message}"));
+        }
+    }
+
+    public ActionResult RecycleFiles(string folder, IReadOnlyList<string> names)
+    {
+        if (Protection.IsElevated() && Protection.ThroughLink(folder))
+            return new ActionResult(false, L.T($"{folder} passa attraverso un collegamento: non tolgo niente.", $"{folder} goes through a link: nothing removed."));
+        var moved = 0;
+        foreach (var name in names)
+        {
+            // Only plain names of files in that very folder.
+            if (name.IndexOfAny(['\\', '/', ':']) >= 0) continue;
+            var path = Path.Combine(folder, name);
+            if (!File.Exists(path)) continue;
+            var op = new SHFILEOPSTRUCT { wFunc = 3, pFrom = path + "\0\0", fFlags = 0x40 | 0x10 | 0x4 | 0x400 | 0x4000 };
+            if (SHFileOperation(ref op) == 0 && !op.fAnyOperationsAborted && !File.Exists(path)) moved++;
+        }
+        return moved == 0 ? new ActionResult(false, L.T("Nessun file mandato nel Cestino (in uso?).", "No file sent to the Recycle Bin (in use?)."))
+            : new ActionResult(true, L.T($"Nel Cestino {moved} file della cartella del BIOS; la nota resta.", $"{moved} BIOS folder files in the Recycle Bin; the note stays."), L.T("Si riprendono dal Cestino.", "They can be restored from the Recycle Bin."));
+    }
+
+    public DateTimeOffset? BootedAt() => DateTimeOffset.Now - TimeSpan.FromMilliseconds(Environment.TickCount64);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct SHFILEOPSTRUCT
+    {
+        public IntPtr hwnd;
+        public uint wFunc;
+        public string pFrom;
+        public string? pTo;
+        public ushort fFlags;
+        [MarshalAs(UnmanagedType.Bool)] public bool fAnyOperationsAborted;
+        public IntPtr hNameMappings;
+        public string? lpszProgressTitle;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHFileOperation(ref SHFILEOPSTRUCT operation);
+
+    public string? InstallLocationOf(AppUpdate app)
+    {
+        var name = app.Name.Length > 24 ? app.Name[..24] : app.Name;
+        foreach (var (hive, path) in new[]
+                 {
+                     (RegistryHive.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+                     (RegistryHive.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+                     (RegistryHive.LocalMachine, @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+                 })
+        {
+            try
+            {
+                using var root = RegistryKey.OpenBaseKey(hive, RegistryView.Registry64);
+                using var key = root.OpenSubKey(path);
+                foreach (var sub in key?.GetSubKeyNames() ?? [])
+                {
+                    using var p = key!.OpenSubKey(sub);
+                    if (p?.GetValue("DisplayName") is string n && n.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+                        return p.GetValue("InstallLocation") is string where && where.Trim().Trim('"').Length > 3 ? where.Trim().Trim('"') : null;
+                }
+            }
+            catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+            {
+            }
+        }
+        return null;
+    }
+
     public AppScope ScopeOf(AppUpdate app)
     {
         var name = app.Name.Length > 24 ? app.Name[..24] : app.Name;

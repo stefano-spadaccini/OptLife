@@ -74,7 +74,7 @@ internal sealed class WindowsSpaceEnvironment : ISpaceEnvironment
     public ActionResult Recycle(IReadOnlyList<string> paths)
     {
         var existing = paths.Select(Real).Where(p => Directory.Exists(p) || File.Exists(p)).ToList();
-        if (existing.Count == 0) return new ActionResult(true, L.T("Non c'era più niente da togliere.", "There was nothing left to remove."));
+        if (existing.Count == 0) return ActionResult.Nothing(L.T("Non c'era più niente da togliere.", "There was nothing left to remove."));
         var moved = 0;
         foreach (var path in existing)
         {

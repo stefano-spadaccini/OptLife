@@ -15,6 +15,20 @@ public interface IUpdatesEnvironment
 
     AppScope ScopeOf(AppUpdate app) => AppScope.Unknown;
 
+    /// <summary>The folder the program is installed in (InstallLocation of its uninstall entry); null when it does not say.</summary>
+    string? InstallLocationOf(AppUpdate app) => null;
+
+    /// <summary>The same update, told to install into <paramref name="location"/> (winget --location) when it is not null.</summary>
+    Task<UpgradeAttempt> WingetUpgradeAt(string id, AppScope scope, string? location, TimeSpan limit, CancellationToken ct) => WingetUpgrade(id, scope, limit, ct);
+
+    /// <summary>Where installers put programs by default on this PC (Program Files, AppData, ProgramData).</summary>
+    IReadOnlyList<string> UsualFolders() =>
+    [
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+    ];
+
     /// <summary>Minutes since the last key or mouse input.</summary>
     int IdleMinutes() => 0;
 
@@ -38,6 +52,18 @@ public interface IUpdatesEnvironment
     BiosInfo? Bios();
 
     ActionResult Open(string target);
+
+    /// <summary>The names in a folder (files only); null when it is not there.</summary>
+    IReadOnlyList<string>? FilesIn(string folder) => null;
+
+    /// <summary>Creates the folder if needed and writes the BIOS note in it.</summary>
+    ActionResult WriteNote(string folder, string text) => new(false, "");
+
+    /// <summary>Sends these files of the folder to the Recycle Bin, one at a time; never a real delete.</summary>
+    ActionResult RecycleFiles(string folder, IReadOnlyList<string> names) => new(false, "");
+
+    /// <summary>When Windows last started.</summary>
+    DateTimeOffset? BootedAt() => null;
 }
 
 /// <summary>
@@ -93,6 +119,9 @@ public sealed class UpdatesModule : IModule
             L.T("Un driver video più vecchio di così viene segnalato.", "A graphics driver older than this is reported."), 120, 14, 1000),
         SettingDefinition.Int("biosDays", L.T("Giorni dopo cui guardare il BIOS", "Days after which to check the BIOS"),
             L.T("Un BIOS più vecchio di così è segnato da guardare sulla pagina (mai un problema: si aggiorna solo se serve).", "A BIOS older than this is marked to look at on the page (never a problem: update it only if needed)."), 365, 30, 3000),
+        SettingDefinition.Text("biosFolder", L.T("Cartella per aggiornare il BIOS", "Folder to update the BIOS"),
+            L.T("Dove mettere il file del BIOS da installare: una cartella del disco di Windows (il BIOS la legge) o la radice di una chiavetta USB FAT32. OptLife la prepara con una nota e la sorveglia.",
+                "Where to put the BIOS file to install: a folder on the Windows drive (the BIOS reads it) or the root of a FAT32 USB stick. OptLife prepares it with a note and keeps an eye on it."), @"C:\BIOS").PickFolder(),
         SettingDefinition.Int("everyHours", L.T("Ogni quante ore controllare", "Check every how many hours"),
             L.T("winget e Windows Update si interrogano al massimo così spesso (sono lenti); \"Controlla ora\" lo fa subito.", "winget and Windows Update are asked at most this often (they are slow); \"Check now\" does it at once."), 12, 1, 168),
     ]);
@@ -102,7 +131,7 @@ public sealed class UpdatesModule : IModule
     {
         "updates" or "idleMinutes" or "autoAt" or "packageMinutes" => L.T("Come e quando aggiornare i programmi", "How and when to update programs"),
         "selfUpdating" or "exclude" => L.T("Programmi da lasciare stare", "Programs to leave alone"),
-        "drivers" or "graphicsDays" or "biosDays" => L.T("Driver e BIOS (solo controllo, mai installati)", "Drivers and BIOS (only checked, never installed)"),
+        "drivers" or "graphicsDays" or "biosDays" or "biosFolder" => L.T("Driver e BIOS (solo controllo, mai installati)", "Drivers and BIOS (only checked, never installed)"),
         _ => L.T("Controllo", "Checking"),
     }))];
 
@@ -122,7 +151,7 @@ public sealed class UpdatesModule : IModule
             Permission.Ask, (ctx, arg, _) => Task.FromResult(Enqueue(ctx, arg, byPerson: true)),
             // Only what OptLife can really update: excluded programs, those that update from their own program
             // and those that would make winget install other programs stay on the page, never in this list.
-            Choices: ctx => [.. UpdatesRules.Updatable(Cached<List<AppUpdate>>(ctx, "apps") ?? [], Exclude(ctx), SelfList(ctx), Stubborn(ctx), NeedsOthers(ctx))
+            Choices: ctx => [.. UpdatesRules.Updatable(Cached<List<AppUpdate>>(ctx, "apps") ?? [], Exclude(ctx), SelfList(ctx), Stubborn(ctx), NeedsOthers(ctx), Managed(ctx))
                 .Where(a => a.WholeId)
                 .OrderBy(a => a.Name, StringComparer.CurrentCultureIgnoreCase)
                 .Select(a => new ActionChoice(a.Id, a.Name, $"{a.Installed} → {a.Available}", true, UpdatesRules.AppsGroup))]),
@@ -133,6 +162,14 @@ public sealed class UpdatesModule : IModule
             // Never by itself, and always with the box ticked: it closes everything that is open.
             Permission.Ask, (_, argument, _) => Task.FromResult(Firmware.RestartIntoSetup(argument)), NeverAuto: true,
             Choices: _ => Firmware.RestartChoices()),
+        new ModuleAction(BiosFolder.Prepare, L.T("Prepara la cartella per aggiornare il BIOS", "Prepare the folder to update the BIOS"),
+            L.T("Crea la cartella scelta nelle impostazioni (C:\\BIOS) con una nota: scheda, versione, pagina ufficiale, come aggiornare e le impostazioni del BIOS da rimettere dopo, lette adesso da Windows. Non scarica niente.",
+                "Creates the folder chosen in the settings (C:\\BIOS) with a note: board, version, official page, how to update and the BIOS settings to put back afterwards, read now from Windows. It downloads nothing."),
+            Permission.Ask, (ctx, _, _) => Task.FromResult(DoPrepareBios(ctx))),
+        new ModuleAction(BiosFolder.Clean, L.T("Manda nel Cestino i file del BIOS", "Send the BIOS files to the Recycle Bin"),
+            L.T("Dopo un aggiornamento riuscito, manda nel Cestino i file della cartella del BIOS (la nota resta). Si riprendono dal Cestino.",
+                "After a successful update, sends the BIOS folder's files to the Recycle Bin (the note stays). They can be restored from the Recycle Bin."),
+            Permission.Ask, (ctx, _, _) => Task.FromResult(DoCleanBios(ctx)), NeverAuto: true),
         new ModuleAction(UpdatesRules.OpenSite, L.T("Apri la pagina ufficiale", "Open the official page"),
             L.T("Apre il sito del produttore o la pagina di Windows Update.", "Opens the maker's site or the Windows Update page."),
             // Ask, not Auto: a problem that carries this as its fix would otherwise open a window by itself when it appears.
@@ -170,7 +207,7 @@ public sealed class UpdatesModule : IModule
     private static ActionResult Enqueue(IModuleContext ctx, string? argument, bool byPerson)
     {
         var ids = (argument ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (ids.Count == 0) return new ActionResult(true, L.T("Nessun programma scelto.", "No program chosen."));
+        if (ids.Count == 0) return ActionResult.Nothing(L.T("Nessun programma scelto.", "No program chosen."));
         var queue = Cached<List<Queued>>(ctx, "queue") ?? [];
         queue.Add(new Queued(ids, byPerson));
         Save(ctx, "queue", queue);
@@ -249,7 +286,11 @@ public sealed class UpdatesModule : IModule
                 continue;
             }
             var scope = app is null ? AppScope.Unknown : _env.ScopeOf(app);
-            var attempt = await _env.WingetUpgrade(id, scope, TimeSpan.FromMinutes(minutes), ct);
+            // Installed in a folder of the person's choosing (C:\Software\…): told to winget, or the installer may put the new version
+            // in its own default folder (RetroArch went to C:\RetroArch-Win64 on 23 Nov 2026). Checked again afterwards.
+            var placedBefore = app is null ? null : _env.InstallLocationOf(app);
+            var location = UpdatesRules.CustomLocation(placedBefore, _env.UsualFolders());
+            var attempt = await _env.WingetUpgradeAt(id, scope, location, TimeSpan.FromMinutes(minutes), ct);
             var (outcome, why) = attempt.Error is { } error ? (UpdatesRules.Outcome.Failed, error) : UpdatesRules.Explain(attempt.Code, attempt.TimedOut, minutes);
             var technical = $"winget upgrade --id {id} · " + (attempt.TimedOut ? L.T("fermato dopo il tempo massimo", "stopped after the maximum time") : attempt.Code is { } c ? L.T($"codice {c:X8}", $"code {c:X8}") : attempt.Error ?? "")
                 + " · " + scope switch { AppScope.Machine => L.T("installato per tutto il PC", "installed for the whole PC"), AppScope.User => L.T("installato per l'utente", "installed for the user"), _ => L.T("installazione non trovata", "installation not found") }
@@ -262,7 +303,18 @@ public sealed class UpdatesModule : IModule
                 why += " " + L.T($"Ha installato anche: {string.Join(", ", added)}. Se non lo vuoi, disinstallalo da Impostazioni → App.", $"It also installed: {string.Join(", ", added)}. If you do not want it, uninstall it from Settings → Apps.");
                 if (outcome == UpdatesRules.Outcome.Done) outcome = UpdatesRules.Outcome.Attention;
             }
-            results.Add(new UpdatesRules.RunResult(id, name, outcome, why, technical));
+            if (location is not null) technical += $" · --location \"{location}\"";
+            var result = new UpdatesRules.RunResult(id, name, outcome, why, technical);
+            // Somewhere else afterwards: said, and never again with winget (put with those that update from their program).
+            if (placedBefore is not null && app is not null && _env.InstallLocationOf(app) is { } placedAfter
+                && !string.Equals(placedAfter.Trim().TrimEnd('\\'), placedBefore.Trim().TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+            {
+                result = UpdatesRules.Moved(result, placedBefore, placedAfter);
+                var stubborn = Stubborn(ctx);
+                stubborn.Add(id);
+                Save(ctx, "stubborn", stubborn);
+            }
+            results.Add(result);
         }
         return results;
     }
@@ -292,7 +344,7 @@ public sealed class UpdatesModule : IModule
         // Automatic: once a day, when the person has been away a while or at the chosen time, never during a game.
         if (refresh && !playing && AutoDue(ctx))
         {
-            var todo = UpdatesRules.Updatable(Cached<List<AppUpdate>>(ctx, "apps") ?? [], Exclude(ctx), SelfList(ctx), Stubborn(ctx), NeedsOthers(ctx)).Select(a => a.Id).ToList();
+            var todo = UpdatesRules.Updatable(Cached<List<AppUpdate>>(ctx, "apps") ?? [], Exclude(ctx), SelfList(ctx), Stubborn(ctx), NeedsOthers(ctx), Managed(ctx)).Select(a => a.Id).ToList();
             ctx.SetState("auto_day", ctx.Now.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
             if (todo.Count > 0) Enqueue(ctx, string.Join(';', todo), byPerson: false);
         }
@@ -307,11 +359,20 @@ public sealed class UpdatesModule : IModule
             Cached<List<WindowsUpdateItem>>(ctx, "windows"), _env.PreviewUpdatesOn(), ctx.Now,
             SelfList(ctx), Stubborn(ctx), Cached<List<UpdatesRules.RunResult>>(ctx, "last_run"),
             ctx.GetState("last_run_at") is { } at && DateTimeOffset.TryParse(at, CultureInfo.InvariantCulture, DateTimeStyles.None, out var when) ? when : null,
-            NeedsOthers(ctx));
+            NeedsOthers(ctx), Managed(ctx));
 
         ctx.SyncFindings("updates", [.. UpdatesRules.Findings(inputs)]);
 
-        var board = UpdatesRules.Board(inputs);
+        var board = UpdatesRules.Board(inputs).ToList();
+        // The BIOS folder, right under the BIOS line.
+        if (inputs.Bios is { } bios)
+        {
+            var folder = BiosFolderPath(ctx);
+            var (row, state) = BiosFolder.Board(bios, folder, _env.FilesIn(folder), Cached<BiosPrepared>(ctx, "bios_prep"), ctx.Now, _env.BootedAt());
+            if (state is not null) Save(ctx, "bios_prep", state);
+            var biosLine = board.FindIndex(i => i.Label.StartsWith("BIOS · ", StringComparison.Ordinal));
+            board.Insert(biosLine < 0 ? board.Count : biosLine + 1, row);
+        }
         var data = CheckItem.ToData(board);
         var signature = string.Join('\n', data.OrderBy(p => p.Key).Select(p => p.Value));
         if (signature == ctx.GetState("board")) return;
@@ -342,6 +403,54 @@ public sealed class UpdatesModule : IModule
         return latest is null ? [] : [.. CheckItem.FromData(latest.Data).Where(i => i.Status == CheckStatus.Watch)];
     }
 
+    /// <summary>The chosen folder, expanded; a drive root ("E:") keeps its backslash ("E:\").</summary>
+    private static string BiosFolderPath(IModuleContext ctx)
+    {
+        var chosen = ctx.Settings.GetText("biosFolder").Trim();
+        var path = Environment.ExpandEnvironmentVariables(chosen.Length > 0 ? chosen : @"C:\BIOS").TrimEnd('\\');
+        return path.Length == 2 && path[1] == ':' ? path + "\\" : path;
+    }
+
+    /// <summary>The BIOS settings Windows reads now, from the last list the PC settings module wrote ("Secure Boot = on"); empty without it.</summary>
+    private static IReadOnlyList<string> BiosSettings(IModuleContext ctx)
+    {
+        var latest = ctx.History.Events(ctx.Now.AddDays(-30), ctx.Now.AddMinutes(1), "setup", "settings_check").MaxBy(e => e.Time);
+        return latest is null ? [] : [.. latest.Data.Where(p => p.Key.StartsWith("bios.", StringComparison.Ordinal) && p.Key != "bios.version" || p.Key.StartsWith("ram.", StringComparison.Ordinal))
+            .OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Value)];
+    }
+
+    private ActionResult DoPrepareBios(IModuleContext ctx)
+    {
+        if (_env.Bios() is not { } bios) return new ActionResult(false, L.T("Windows non dice che BIOS e che scheda ha questo PC.", "Windows does not say which BIOS and board this PC has."));
+        var folder = BiosFolderPath(ctx);
+        var note = BiosFolder.Readme(bios, UpdatesRules.BiosPage(bios.BoardMaker, bios.Board), BiosSettings(ctx), ctx.Now);
+        var r = _env.WriteNote(folder, note);
+        if (!r.Ok) return r;
+        Save(ctx, "bios_prep", new BiosPrepared(bios.Version, ctx.Now));
+        return new ActionResult(true, L.T($"Cartella pronta: {folder}, con la nota {BiosFolder.Note}. Scarica il BIOS dalla pagina ufficiale e mettilo lì.",
+            $"Folder ready: {folder}, with the note {BiosFolder.Note}. Download the BIOS from the official page and put it there."));
+    }
+
+    private ActionResult DoCleanBios(IModuleContext ctx)
+    {
+        var folder = BiosFolderPath(ctx);
+        var files = (_env.FilesIn(folder) ?? []).Where(f => !f.Equals(BiosFolder.Note, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (files.Count == 0) return ActionResult.Nothing(L.T($"in {folder} non ci sono file da togliere.", $"{folder} has no files to remove."));
+        var r = _env.RecycleFiles(folder, files);
+        if (r.Ok) Save(ctx, "bios_prep", new BiosPrepared(_env.Bios()?.Version ?? "", ctx.Now));
+        return r;
+    }
+
+    /// <summary>
+    /// The emulators the Emulation page found installed (its green and amber lines), by name: those it updates itself, in their own
+    /// folder. Nothing when that module is not there.
+    /// </summary>
+    private static IReadOnlyList<string> Managed(IModuleContext ctx)
+    {
+        var latest = ctx.History.Events(ctx.Now.AddDays(-30), ctx.Now.AddMinutes(1), "emulation", "emulation_board").MaxBy(e => e.Time);
+        return latest is null ? [] : [.. CheckItem.FromData(latest.Data).Where(i => i.Status is CheckStatus.Ok or CheckStatus.Watch).Select(i => i.Label).Distinct()];
+    }
+
     private sealed record DependencyNote(string Available, IReadOnlyList<string> Missing);
 
     /// <summary>
@@ -351,7 +460,7 @@ public sealed class UpdatesModule : IModule
     private async Task LookAtDependencies(IModuleContext ctx, IReadOnlyList<AppUpdate> apps, CancellationToken ct)
     {
         var installed = _env.InstalledNames();
-        foreach (var a in UpdatesRules.Updatable(apps, Exclude(ctx), SelfList(ctx), Stubborn(ctx)))
+        foreach (var a in UpdatesRules.Updatable(apps, Exclude(ctx), SelfList(ctx), Stubborn(ctx), managedEmulators: Managed(ctx)))
         {
             if (ct.IsCancellationRequested) return;
             var key = $"deps:{a.Id.ToLowerInvariant()}";

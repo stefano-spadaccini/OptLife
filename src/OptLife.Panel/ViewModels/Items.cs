@@ -41,11 +41,59 @@ internal static class Display
     }
 }
 
+/// <summary>A button of a choice an action stopped at ("Tieni quello della Hub"): the module's action with its argument.</summary>
+public sealed record NeedButton(string Module, FindingFix Fix, long? FindingId)
+{
+    public string Label => Fix.Label.ToUpper(Display.Lang);
+}
+
+/// <summary>
+/// What pressing a button did, kept by the panel apart from the cards (which are rebuilt at every refresh): working, done, nothing
+/// to do, failed, or a choice with its buttons. Every press ends with one of these, also the ones that take no time.
+/// </summary>
+public sealed partial class ActionFeedback : ObservableObject
+{
+    [ObservableProperty] private bool _busy;
+    [ObservableProperty] private string _text = "";
+
+    /// <summary>The button is off while its action runs: pressed three times, it would run three times.</summary>
+    public bool Idle => !Busy;
+    partial void OnBusyChanged(bool value) => OnPropertyChanged(nameof(Idle));
+
+    /// <summary>The colour family of the icon: "good" done, "info" nothing to do, "medium" failed or waiting for a choice.</summary>
+    [ObservableProperty] private string _level = "info";
+
+    public System.Collections.ObjectModel.ObservableCollection<NeedButton> Needs { get; } = [];
+    public bool HasNeeds => Needs.Count > 0;
+
+    public ActionFeedback() => Needs.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasNeeds));
+
+    public static ActionFeedback Working(string what) => new() { Busy = true, Text = L.T($"In corso: {what}…", $"Working: {what}…") };
+
+    /// <summary>The result in words that say which of the four it is.</summary>
+    public void Show(ActionResult result, string module, long? findingId)
+    {
+        Busy = false;
+        (Text, Level) = result.Outcome switch
+        {
+            ActionOutcome.Done => (L.T("Fatto. ", "Done. ") + result.Detail, "good"),
+            ActionOutcome.Nothing => (L.T("Niente da fare: ", "Nothing to do: ") + result.Detail, "info"),
+            ActionOutcome.Choice => (L.T("Serve una tua scelta. ", "Your choice is needed. ") + result.Detail, "medium"),
+            _ => (L.T("Non riuscito. ", "Failed. ") + result.Detail, "medium"),
+        };
+        Needs.Clear();
+        foreach (var fix in result.Needs ?? []) Needs.Add(new NeedButton(module, fix, findingId));
+    }
+}
+
 /// <param name="fixLabel">What the "put it right" button says; null when the problem has no fix or the person forbade it.</param>
-public sealed partial class FindingItem(StoredFinding f, string moduleName, DateTimeOffset now, string? fixLabel = null) : ObservableObject
+/// <param name="feedback">What its button did last, when it was pressed in this panel.</param>
+public sealed partial class FindingItem(StoredFinding f, string moduleName, DateTimeOffset now, string? fixLabel = null, ActionFeedback? feedback = null) : ObservableObject
 {
     public long Id => f.Id;
     public string ModuleId => f.Module;
+    public ActionFeedback? Feedback => feedback;
+    public bool HasFeedback => feedback is not null;
 
     /// <summary>The section it is listed under; problems stored before areas existed fall under their module's name.</summary>
     public string Area => f.Area ?? moduleName;
@@ -299,6 +347,9 @@ public sealed partial class ViewTab(IModule module, ModuleView view) : Observabl
     /// <summary>What the last button did.</summary>
     [ObservableProperty] private string _notice = "";
     [ObservableProperty] private bool _noticeIsError;
+
+    /// <summary>The last button's outcome, with the buttons of a choice when it stopped at one.</summary>
+    [ObservableProperty] private ActionFeedback? _feedback;
 
     /// <summary>The list to tick before an action runs; empty when none is open.</summary>
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasChoices))] private IReadOnlyList<ChoiceItem> _choices = [];
@@ -613,8 +664,14 @@ public sealed class ActionLogItem(ActionLogEntry e, string moduleName, string ac
     public string Time => e.Time.ToLocalTime().ToString("dd/MM HH:mm", Display.Lang);
     public string Title => actionName;
     public string Detail => e.Detail;
-    public string Level => e.Ok ? "ok" : "medium";
-    public string Outcome => e.Ok ? L.T("FATTO", "DONE") : L.T("NON ESEGUITA", "NOT DONE");
+    public string Level => e.Outcome switch { ActionOutcome.Done => "ok", ActionOutcome.Nothing => "info", _ => "medium" };
+    public string Outcome => e.Outcome switch
+    {
+        ActionOutcome.Done => L.T("FATTO", "DONE"),
+        ActionOutcome.Nothing => L.T("NIENTE DA FARE", "NOTHING TO DO"),
+        ActionOutcome.Choice => L.T("SERVE UNA SCELTA", "CHOICE NEEDED"),
+        _ => L.T("NON ESEGUITA", "NOT DONE"),
+    };
     public string Source => $"{moduleName} · " + e.Actor switch
     {
         ModuleRunner.AutoActor => "da solo",

@@ -24,7 +24,7 @@ internal static class Displays
     {
         var found = ReadWithNames().FirstOrDefault(d => d.Info.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
         if (found.Info is not { } display) return new ActionResult(false, L.T($"Lo schermo \"{id}\" non è collegato o è spento.", $"Screen \"{id}\" is not connected or is off."));
-        if (display.Hz + 1 >= display.MaxHz) return new ActionResult(true, L.T($"Lo schermo {display.Name} è già a {display.Hz} Hz, il suo massimo.", $"Screen {display.Name} is already at {display.Hz} Hz, its maximum."));
+        if (display.Hz + 1 >= display.MaxHz) return ActionResult.Nothing(L.T($"Lo schermo {display.Name} è già a {display.Hz} Hz, il suo massimo.", $"Screen {display.Name} is already at {display.Hz} Hz, its maximum."));
 
         var best = new DEVMODE { dmSize = (short)Marshal.SizeOf<DEVMODE>() };
         var mode = new DEVMODE { dmSize = (short)Marshal.SizeOf<DEVMODE>() };

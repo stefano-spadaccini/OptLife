@@ -230,12 +230,12 @@ public sealed partial class PanelViewModel
     private void RefreshHome(IReadOnlyList<StoredFinding> open)
     {
         var top = open.OrderByDescending(f => f.Severity).ThenByDescending(f => f.LastSeen).Take(3).ToList();
-        var signature = string.Join('|', top.Select(f => $"{f.Id}:{f.Title}:{FixLabel(f)}"));
+        var signature = string.Join('|', top.Select(f => $"{f.Id}:{f.Title}:{FixLabel(f)}:{_feedback.ContainsKey(f.Id)}"));
         if (signature != _topShown)
         {
             _topShown = signature;
             TopProblems.Clear();
-            foreach (var f in top) TopProblems.Add(new FindingItem(f, ModuleName(f.Module), Now, FixLabel(f)));
+            foreach (var f in top) TopProblems.Add(new FindingItem(f, ModuleName(f.Module), Now, FixLabel(f), _feedback.GetValueOrDefault(f.Id)));
         }
         OnPropertyChanged(nameof(HasMoreProblems));
         OnPropertyChanged(nameof(MoreProblemsText));

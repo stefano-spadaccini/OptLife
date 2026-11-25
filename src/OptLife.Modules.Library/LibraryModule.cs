@@ -1013,7 +1013,7 @@ public sealed class LibraryModule : IModule
         var c = LibraryRules.ConsoleOf(g.Console)!;
         var written = WrittenFiles(ctx).ToDictionary(p => p.Key, p => p.Value, StringComparer.OrdinalIgnoreCase);
         if (SettingsFile(ctx, g, ExeOf(ctx, c, found)) is not { } file || !written.TryGetValue(file, out var w))
-            return new ActionResult(true, L.T("OptLife non aveva scritto niente per questo gioco.", "OptLife had written nothing for this game."));
+            return ActionResult.Nothing(L.T("OptLife non aveva scritto niente per questo gioco.", "OptLife had written nothing for this game."));
         string detail;
         try
         {

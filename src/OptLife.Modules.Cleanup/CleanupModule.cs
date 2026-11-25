@@ -278,18 +278,31 @@ public sealed class CleanupModule : IModule
 
     private ActionResult DoSort(IModuleContext ctx, IReadOnlyList<(string Path, string Hub, string Section)> moves)
     {
-        if (moves.Count == 0) return new ActionResult(true, L.T("Niente da spostare.", "Nothing to move."));
+        if (moves.Count == 0) return ActionResult.Nothing(L.T("non c'è più nessun collegamento con una sezione proposta.", "there is no shortcut with a suggested section any more."));
         var done = Load<List<HubMove>>(ctx, "hub_moves") ?? [];
         var ok = new List<string>();
         var twins = new List<string>();
+        var ways = new List<FindingFix>();
         var failed = new List<string>();
         foreach (var (path, hub, section) in moves)
         {
             var to = Path.Combine(hub, section);
-            // Already one with this name there: not an error, a choice (remove the duplicate, or keep both) on the Shortcuts page.
-            if (Twin(new Shortcut(path, "", ""), hub, section) is not null)
+            // Already one with this name there: not an error, not a success either — a choice, offered right in the answer.
+            if (Twin(new Shortcut(path, "", ""), hub, section) is { } twin)
             {
-                twins.Add(Path.GetFileNameWithoutExtension(path));
+                var name = Path.GetFileNameWithoutExtension(path);
+                twins.Add(name);
+                var arg = $"{path}|{section}";
+                var source = _env.Shortcuts(Path.GetDirectoryName(path)!).FirstOrDefault(x => x.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+                var many = moves.Count > 1 ? $" ({name})" : "";
+                if (source is not null && SameTarget(twin.Target, source.Target))
+                    ways.Add(new FindingFix(DropDuplicate, L.T("Elimina il doppione", "Remove the duplicate") + many, arg));
+                else
+                {
+                    ways.Add(new FindingFix(TwinKeepHub, L.T("Tieni quello della Hub", "Keep the one in the Hub") + many, arg));
+                    ways.Add(new FindingFix(TwinUseNew, L.T("Usa il nuovo", "Use the new one") + many, arg));
+                    ways.Add(new FindingFix(SortRename, L.T("Tienili tutti e due", "Keep both") + many, arg));
+                }
                 continue;
             }
             var r = _env.MoveFile(path, to);
@@ -307,9 +320,14 @@ public sealed class CleanupModule : IModule
         WriteHubBoard(ctx);
         var parts = new List<string>();
         if (ok.Count > 0) parts.Add(L.T("Spostati: ", "Moved: ") + string.Join(", ", ok) + ".");
-        if (twins.Count > 0) parts.Add(L.T($"Da decidere (nella sezione ce n'è già uno con lo stesso nome, vedi la pagina Collegamenti): {string.Join(", ", twins)}.", $"To decide (the section already has one with the same name, see the Shortcuts page): {string.Join(", ", twins)}."));
+        if (twins.Count > 0) parts.Add(L.T($"Non spostati perché nella sezione c'è già un collegamento con lo stesso nome: {string.Join(", ", twins)}. Scegli qui sotto cosa fare.",
+            $"Not moved because the section already has a shortcut with the same name: {string.Join(", ", twins)}. Choose below what to do."));
         if (failed.Count > 0) parts.Add(L.T("Non spostati: ", "Not moved: ") + string.Join("; ", failed) + ".");
-        return new ActionResult(failed.Count == 0, string.Join(' ', parts), ok.Count > 0 ? L.T("ANNULLA nella pagina Collegamenti.", "UNDO on the Shortcuts page.") : null);
+        var undo = ok.Count > 0 ? L.T("ANNULLA nella pagina Collegamenti.", "UNDO on the Shortcuts page.") : null;
+        var text = string.Join(' ', parts);
+        // Only what moved is a success: a namesake waiting is a choice (even next to moved ones), a refusal with nothing moved is a failure.
+        if (ways.Count > 0) return ActionResult.Choose(text, ways) with { Undo = undo };
+        return new ActionResult(failed.Count == 0 && ok.Count > 0, text, undo);
     }
 
     /// <summary>"file|section": only a shortcut of a "to sort" folder, only into a section of its own Hub.</summary>
@@ -478,7 +496,7 @@ public sealed class CleanupModule : IModule
         }
         ctx.SetState("twin_rules", JsonSerializer.Serialize(rules));
         WriteHubBoard(ctx);
-        if (done.Count == 0 && failed.Count == 0) return new ActionResult(true, L.T("Niente da fare: nessuna scelta spuntata.", "Nothing to do: no choice ticked."));
+        if (done.Count == 0 && failed.Count == 0) return ActionResult.Nothing(L.T("nessuna scelta spuntata.", "no choice ticked."));
         return new ActionResult(failed.Count == 0, string.Join(' ', done.Concat(failed)), L.T("Ciò che va nel Cestino si riprende da lì; le scelte ricordate si tolgono dalla pagina Collegamenti.", "What goes to the Recycle Bin can be restored from there; remembered choices are removed from the Shortcuts page."));
     }
 
@@ -642,7 +660,7 @@ public sealed class CleanupModule : IModule
     {
         var broken = Broken(ctx);
         var chosen = only is { Length: > 0 } ? broken.Where(b => only.Split(';').Contains(b, StringComparer.OrdinalIgnoreCase)).ToList() : [.. broken];
-        if (chosen.Count == 0) return new ActionResult(true, L.T("Non c'è più nessun collegamento rotto.", "There is no broken shortcut any more."));
+        if (chosen.Count == 0) return ActionResult.Nothing(L.T("Non c'è più nessun collegamento rotto.", "There is no broken shortcut any more."));
         ctx.Progress(L.T($"Metto nel Cestino {chosen.Count} collegamenti", $"Recycling {chosen.Count} shortcuts"));
         var r = _env.Recycle(chosen);
         if (!r.Ok) return r;
@@ -724,7 +742,7 @@ public sealed class CleanupModule : IModule
         if (rule?.MoveTo is null) return new ActionResult(false, L.T("Non c'è una regola con una cartella di destinazione per questa cartella.", "There is no rule with a destination folder for this folder."));
         if (_env.List(rule.Folder) is not { } found) return new ActionResult(false, L.T($"La cartella {rule.Folder} non c'è.", $"The folder {rule.Folder} does not exist."));
         var loose = CleanupRules.Loose(rule, found);
-        return loose.Count == 0 ? new ActionResult(true, L.T("Non c'è più niente fuori posto.", "Nothing is out of place any more.")) : MoveAndRemember(ctx, rule.Folder, loose, rule.MoveTo);
+        return loose.Count == 0 ? ActionResult.Nothing(L.T("Non c'è più niente fuori posto.", "Nothing is out of place any more.")) : MoveAndRemember(ctx, rule.Folder, loose, rule.MoveTo);
     }
 
     /// <summary>Moves the loose things and keeps where each went, so UNDO on the Shortcuts page puts them back.</summary>
@@ -746,6 +764,10 @@ public sealed class CleanupModule : IModule
 
     private const string LooseMovesKey = "loose_moves";
 
+    /// <summary>The convention for a folder OptLife made: a note inside named "OptLife-….txt".</summary>
+    private static bool MadeByOptLife(string name) =>
+        name.StartsWith("OptLife-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase);
+
     private ActionResult DoLooseUndo(IModuleContext ctx, string? id)
     {
         var list = Load<List<LooseMove>>(ctx, LooseMovesKey) ?? [];
@@ -763,7 +785,7 @@ public sealed class CleanupModule : IModule
         if (rule is null) return new ActionResult(false, L.T($"Nessuna regola \"{ruleName}\".", $"No \"{ruleName}\" rule."));
         // Looked up again at this very moment: what goes to the bin is what is stale now, not what was when the problem was written.
         var stale = CleanupRules.Stale(rule, _env.Find(rule.Root, rule.Folders, rule.Marker), ctx.Now);
-        return stale.Count == 0 ? new ActionResult(true, L.T("Non c'è più niente da togliere.", "Nothing left to remove.")) : _env.Recycle([.. stale.Select(i => i.Path)]);
+        return stale.Count == 0 ? ActionResult.Nothing(L.T("Non c'è più niente da togliere.", "Nothing left to remove.")) : _env.Recycle([.. stale.Select(i => i.Path)]);
     }
 
     private ActionResult DoRemoveUnwanted(IModuleContext ctx, string? id)
@@ -797,7 +819,9 @@ public sealed class CleanupModule : IModule
         var newcomers = new List<NewFinding>();
         foreach (var w in s.GetList("watch").Select(CleanupRules.Split).Where(w => w[0].Length > 0))
         {
-            if (_env.List(w[0]) is not { } found) continue;
+            if (_env.List(w[0]) is not { } listed) continue;
+            // A folder OptLife made itself (C:\BIOS, with its "OptLife-…" note inside) is not news.
+            var found = listed.Where(n => _env.List(Path.Combine(w[0], n)) is not { } inside || !inside.Any(MadeByOptLife)).ToList();
             var key = $"seen:{w[0].ToLowerInvariant()}";
             if (Remembered(ctx, key) is { } reference)
                 newcomers.AddRange(CleanupRules.Newcomers(w[0], w.Length > 1 ? w[1] : null, reference, found));

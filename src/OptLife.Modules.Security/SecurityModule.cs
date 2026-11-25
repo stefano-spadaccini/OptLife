@@ -123,10 +123,10 @@ public sealed class SecurityModule : IModule
     private async Task<ActionResult> DoDisableRules(IModuleContext ctx, string? argument, CancellationToken ct)
     {
         var ids = (argument ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet();
-        if (ids.Count == 0) return new ActionResult(true, L.T("Nessuna regola scelta.", "No rule chosen."));
+        if (ids.Count == 0) return ActionResult.Nothing(L.T("Nessuna regola scelta.", "No rule chosen."));
         // Only rules that are still orphans now: the button never turns off a rule whose program is there.
         var orphans = _env.Firewall() is { } fw ? SecurityRules.Orphans(fw).Where(r => ids.Contains(r.Id)).Select(r => r.Id).ToList() : [];
-        if (orphans.Count == 0) return new ActionResult(true, L.T("Non c'è più niente da spegnere.", "Nothing left to turn off."));
+        if (orphans.Count == 0) return ActionResult.Nothing(L.T("Non c'è più niente da spegnere.", "Nothing left to turn off."));
         var result = _env.DisableRules(orphans);
         if (result.Ok) await Check(new Forced(ctx), ct);
         return result;

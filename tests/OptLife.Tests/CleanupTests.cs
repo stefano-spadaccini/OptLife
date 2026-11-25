@@ -663,6 +663,30 @@ public sealed class HubSortTests : IDisposable
         Assert.Contains(_pc.Links[$@"{Hub}\2 Emulatori"], s => s.Path.EndsWith("RetroArch (2).lnk"));
     }
 
+    /// <summary>25 Nov 2026: "Sort them" on Telegram (a namesake in 3 Chat) said "ok" three times and moved nothing.</summary>
+    [Fact]
+    public async Task Sorting_onto_a_namesake_is_not_a_success_but_a_choice_with_its_three_buttons()
+    {
+        _pc.Links[$@"{Hub}\2 Emulatori"] = [new(@$"{Hub}\2 Emulatori\RetroArch.lnk", "RetroArch", @"C:\Emu\RetroArch\retroarch.exe")];
+        var one = _module.Actions.Single(a => a.Id == CleanupModule.SortOne);
+        var result = await _box.Runner.RunActionAsync(_module, one, "pannello", true, @$"{Inbox}\RetroArch.lnk|2 Emulatori", CancellationToken.None);
+
+        Assert.Equal(ActionOutcome.Choice, result.Outcome);
+        Assert.False(result.Ok);
+        Assert.Equal([CleanupModule.TwinKeepHub, CleanupModule.TwinUseNew, CleanupModule.SortRename], result.Needs!.Select(n => n.ActionId));
+        Assert.All(result.Needs!, n => Assert.Equal(@$"{Inbox}\RetroArch.lnk|2 Emulatori", n.Argument));
+        Assert.Equal(ActionOutcome.Choice, _box.Store.GetActions().First().Outcome);
+
+        // One of the buttons, as it comes: the shortcut goes in.
+        var keepBoth = result.Needs!.Single(n => n.ActionId == CleanupModule.SortRename);
+        Assert.True((await _box.Runner.RunActionAsync(_module, _module.Actions.Single(a => a.Id == keepBoth.ActionId), "pannello", true, keepBoth.Argument, CancellationToken.None)).Ok);
+        Assert.Contains(_pc.Links[$@"{Hub}\2 Emulatori"], s => s.Path.EndsWith("RetroArch (2).lnk"));
+
+        // Nothing left with a suggestion: said as such, not as done.
+        var all = _module.Actions.Single(a => a.Id == CleanupModule.SortPick);
+        Assert.Equal(ActionOutcome.Nothing, (await _box.Runner.RunActionAsync(_module, all, "pannello", true, "", CancellationToken.None)).Outcome);
+    }
+
     [Fact]
     public async Task Shortcuts_that_open_nothing_are_offered_for_the_bin_and_go_by_themselves_when_asked_to()
     {

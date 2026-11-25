@@ -3,7 +3,9 @@ using Microsoft.Data.Sqlite;
 
 namespace OptLife.Core.Storage;
 
-public sealed record ActionLogEntry(long Id, DateTimeOffset Time, string Module, string Action, string Actor, bool Ok, string Detail, string? Undo);
+/// <param name="Outcome">Kept in the "ok" column: 1 done, 0 failed, 2 nothing to do, 3 waiting for a choice (older rows are 0 or 1).</param>
+public sealed record ActionLogEntry(long Id, DateTimeOffset Time, string Module, string Action, string Actor, bool Ok, string Detail, string? Undo,
+    ActionOutcome Outcome = ActionOutcome.Done);
 
 /// <summary>
 /// The single shared history. The schema is generic on purpose: modules never add tables,
@@ -318,7 +320,7 @@ public sealed class Store
             VALUES($ts, $m, $a, $who, $ok, $d, $u)
             """,
             ("$ts", Ms(at)), ("$m", module), ("$a", action), ("$who", actor),
-            ("$ok", result.Ok), ("$d", result.Detail), ("$u", result.Undo));
+            ("$ok", result.Outcome switch { ActionOutcome.Done => 1, ActionOutcome.Nothing => 2, ActionOutcome.Choice => 3, _ => 0 }), ("$d", result.Detail), ("$u", result.Undo));
     }
 
     public IReadOnlyList<ActionLogEntry> GetActions(int limit = 100)
@@ -330,9 +332,11 @@ public sealed class Store
         var list = new List<ActionLogEntry>();
         while (r.Read())
         {
+            var code = r.GetInt64(5);
+            var outcome = code switch { 1 => ActionOutcome.Done, 2 => ActionOutcome.Nothing, 3 => ActionOutcome.Choice, _ => ActionOutcome.Failed };
             list.Add(new ActionLogEntry(
                 r.GetInt64(0), FromMs(r.GetInt64(1)), r.GetString(2), r.GetString(3), r.GetString(4),
-                r.GetBoolean(5), r.GetString(6), r.IsDBNull(7) ? null : r.GetString(7)));
+                code is 1 or 2, r.GetString(6), r.IsDBNull(7) ? null : r.GetString(7), outcome));
         }
         return list;
     }

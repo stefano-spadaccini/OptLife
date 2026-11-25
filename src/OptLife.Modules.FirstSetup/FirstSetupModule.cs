@@ -178,7 +178,7 @@ public sealed class FirstSetupModule : IModule
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         // Read again now and in catalog order: drivers before programs, whatever order the ticks came in.
         var apps = Missing(ctx).Where(a => a.Winget is not null && wanted.Contains(a.Id)).ToList();
-        if (apps.Count == 0) return new ActionResult(true, L.T("Nessuna app da installare.", "No app to install."));
+        if (apps.Count == 0) return ActionResult.Nothing(L.T("Nessuna app da installare.", "No app to install."));
 
         var done = new List<string>();
         var failed = new List<string>();

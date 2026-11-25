@@ -43,6 +43,41 @@ internal sealed class FakeUpdatesEnvironment : IUpdatesEnvironment
     public AppScope ScopeOf(AppUpdate app) => app.Id.StartsWith("User.") ? AppScope.User : AppScope.Machine;
     public int IdleMinutes() => Idle;
 
+    /// <summary>Where each program is installed; an update moves it to <see cref="MovesTo"/> when there is one (what winget did with RetroArch).</summary>
+    public Dictionary<string, string> Locations { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> MovesTo { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<(string Id, string? Location)> AskedAt { get; } = [];
+    public string? InstallLocationOf(AppUpdate app) => Locations.GetValueOrDefault(app.Id);
+    public IReadOnlyList<string> UsualFolders() => [@"C:\Program Files", @"C:\Program Files (x86)", @"C:\Users\io\AppData\Local"];
+
+    /// <summary>Folders by path, with their files; the note written goes in as a file.</summary>
+    public Dictionary<string, List<string>> Folders { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public string? NoteText { get; private set; }
+    public List<string> Binned { get; } = [];
+    public DateTimeOffset? Boot { get; set; }
+    public IReadOnlyList<string>? FilesIn(string folder) => Folders.TryGetValue(folder, out var f) ? [.. f] : null;
+    public ActionResult WriteNote(string folder, string text)
+    {
+        if (!Folders.TryGetValue(folder, out var f)) Folders[folder] = f = [];
+        if (!f.Contains(BiosFolder.Note)) f.Add(BiosFolder.Note);
+        NoteText = text;
+        return new ActionResult(true, folder);
+    }
+    public ActionResult RecycleFiles(string folder, IReadOnlyList<string> names)
+    {
+        Binned.AddRange(names);
+        Folders[folder].RemoveAll(names.Contains);
+        return new ActionResult(true, $"{names.Count} nel Cestino");
+    }
+    public DateTimeOffset? BootedAt() => Boot;
+
+    public Task<UpgradeAttempt> WingetUpgradeAt(string id, AppScope scope, string? location, TimeSpan limit, CancellationToken ct)
+    {
+        AskedAt.Add((id, location));
+        if (MovesTo.TryGetValue(id, out var elsewhere)) Locations[id] = elsewhere;
+        return WingetUpgrade(id, scope, limit, ct);
+    }
+
     public Dictionary<string, List<string>> Deps { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> Installed { get; } = [];
     /// <summary>Programs an update installs along with itself (what winget did with iTunes).</summary>
@@ -148,6 +183,103 @@ public sealed class UpdatesTests : IDisposable
         Assert.Equal(["Git.Git", "REALiX.HWiNFO"], _env.Upgraded);
         Assert.DoesNotContain(Open(), x => x.Key.StartsWith("apps|"));
         Assert.Equal(2, _box.Store.QueryEvents(_box.Clock.Now.AddDays(-1), _box.Clock.Now.AddDays(1), module: "updates", kind: "app_updated").Count);
+    }
+
+    /// <summary>23 Nov 2026: winget reinstalled RetroArch in C:\RetroArch-Win64, away from C:\Software\Consoles\RetroArch.</summary>
+    [Fact]
+    public async Task A_program_in_a_folder_of_its_own_is_updated_there_and_one_moved_anyway_is_said_and_left_to_its_program()
+    {
+        Assert.Equal(@"C:\Software\Consoles\RetroArch", UpdatesRules.CustomLocation(@"C:\Software\Consoles\RetroArch\", [@"C:\Program Files"]));
+        Assert.Null(UpdatesRules.CustomLocation(@"C:\Program Files\Git", [@"C:\Program Files"]));
+        Assert.Null(UpdatesRules.CustomLocation("", [@"C:\Program Files"]));
+
+        _env.Apps = UpdatesRules.ParseWinget(Sample);
+        _env.Locations["Git.Git"] = @"C:\Program Files\Git";
+        _env.Locations["REALiX.HWiNFO"] = @"D:\Tools\HWiNFO";
+        _env.MovesTo["REALiX.HWiNFO"] = @"C:\Program Files\HWiNFO64";
+        await Round();
+        await _box.Runner.RunActionAsync(_module, _module.Actions.Single(a => a.Id == UpdatesRules.UpgradeOne), "test", true, "Git.Git;REALiX.HWiNFO", CancellationToken.None);
+        await Queue();
+
+        Assert.Contains(("Git.Git", (string?)null), _env.AskedAt);                 // Where installers put it anyway: nothing to say.
+        Assert.Contains(("REALiX.HWiNFO", (string?)@"D:\Tools\HWiNFO"), _env.AskedAt); // Its own folder, told to winget.
+        var run = Board().Single(i => i.Group == UpdatesRules.LastRunGroup && i.Label.StartsWith("HWiNFO"));
+        Assert.Equal(CheckStatus.Watch, run.Status);
+        Assert.Contains(@"C:\Program Files\HWiNFO64", run.Value);
+
+        // From then on it is not offered to winget again.
+        _env.Apps = UpdatesRules.ParseWinget(Sample);
+        await Round(onDemand: true);
+        var choices = _box.Runner.ChoicesOf(_module, _module.Actions.Single(a => a.Id == UpdatesRules.Upgrade), out _);
+        Assert.DoesNotContain(choices, c => c.Id == "REALiX.HWiNFO");
+    }
+
+    [Fact]
+    public void A_bios_file_is_told_by_its_name_and_version()
+    {
+        Assert.Equal("3645", BiosFolder.FileVersion("ROG-STRIX-B550-F-GAMING-ASUS-3645.CAP"));
+        Assert.Equal("F15", BiosFolder.FileVersion("B550AORUSELITE.F15"));
+        Assert.True(BiosFolder.ForBoard("ROG-STRIX-B550-F-GAMING-ASUS-3645.CAP", "ROG STRIX B550-F GAMING"));
+        Assert.False(BiosFolder.ForBoard("TUF-GAMING-X570-PLUS-ASUS-5021.CAP", "ROG STRIX B550-F GAMING"));
+        Assert.Null(BiosFolder.ForBoard("E7C91AMS.1A0", "MAG B550 TOMAHAWK (MS-7C91)")); // MSI codes say nothing.
+        Assert.True(BiosFolder.Installed("3645", "3645"));
+        Assert.False(BiosFolder.Installed("3607", "3645"));
+        Assert.False(BiosFolder.LooksLikeBios(BiosFolder.Note));
+        Assert.False(BiosFolder.LooksLikeBios("bios.zip"));
+    }
+
+    /// <summary>25 Nov 2026: a folder to find the file from the BIOS, kept by OptLife and emptied once installed.</summary>
+    [Fact]
+    public async Task The_bios_folder_is_prepared_followed_and_emptied_only_when_the_new_version_runs()
+    {
+        const string folder = @"C:\BIOS", file = "ROG-STRIX-B550-F-GAMING-ASUS-3645.CAP";
+        _env.BiosInfo = new BiosInfo("ASUSTeK COMPUTER INC.", "ROG STRIX B550-F GAMING", "3607", new DateTimeOffset(2024, 3, 18, 0, 0, 0, TimeSpan.Zero));
+        _box.Store.InsertEvents("setup", [new NewEvent(_box.Clock.Now, "settings_check", Severity.Info, "x", "settings_check",
+            Data: new Dictionary<string, string> { ["bios.secure_boot"] = "Secure Boot = acceso", ["bios.version"] = "Versione del BIOS = 3607", ["ram.speed"] = "Velocità della memoria = 3600 MHz", ["display.A.mode"] = "Schermo A = 165 Hz" })]);
+        await Round();
+        IReadOnlyList<CheckItem> Row() => [.. Board().Where(i => i.Label == "Cartella per aggiornare il BIOS")];
+        Assert.Equal(BiosFolder.Prepare, Assert.Single(Row()).Buttons!.Single().ActionId);
+
+        var prepare = _module.Actions.Single(a => a.Id == BiosFolder.Prepare);
+        Assert.True((await _box.Runner.RunActionAsync(_module, prepare, "test", true, null, CancellationToken.None)).Ok);
+        Assert.Contains("ROG STRIX B550-F GAMING", _env.NoteText);
+        Assert.Contains("Secure Boot = acceso", _env.NoteText);       // What to set again afterwards…
+        Assert.Contains("Velocità della memoria = 3600 MHz", _env.NoteText);
+        Assert.DoesNotContain("Schermo A", _env.NoteText);           // …only the BIOS settings.
+        Assert.Contains("EZ Flash", _env.NoteText);
+        Assert.Contains("BIOSRenamer", _env.NoteText);
+
+        _env.Folders[folder].Add(file);
+        _box.Clock.Now += TimeSpan.FromMinutes(1);
+        await Round(onDemand: true);
+        Assert.Equal("PRONTO", Row().Single().StatusText);
+
+        // Restarted, still the old version: not done.
+        _box.Clock.Now += TimeSpan.FromHours(1);
+        _env.Boot = _box.Clock.Now;
+        await Round(onDemand: true);
+        Assert.Equal("NON FATTO", Row().Single().StatusText);
+
+        // Now the new one runs: the files can go, never by themselves.
+        _env.BiosInfo = _env.BiosInfo with { Version = "3645" };
+        _box.Clock.Now += TimeSpan.FromMinutes(1);
+        await Round(onDemand: true);
+        var updated = Row().Single();
+        Assert.Equal("AGGIORNATO", updated.StatusText);
+        var clean = _module.Actions.Single(a => a.Id == BiosFolder.Clean);
+        Assert.True(clean.NeverAuto);
+        Assert.True((await _box.Runner.RunActionAsync(_module, clean, "test", true, null, CancellationToken.None)).Ok);
+        Assert.Equal([file], _env.Binned);
+        Assert.Equal([BiosFolder.Note], _env.Folders[folder]); // The note stays.
+    }
+
+    [Fact]
+    public void An_emulator_the_emulation_page_updates_is_not_updated_by_winget_too()
+    {
+        var apps = new[] { new AppUpdate("RetroArch", "Libretro.RetroArch", "1.21.0", "1.22.2"), new AppUpdate("Git", "Git.Git", "2.56.0", "2.56.1") };
+        Assert.Equal(["Git.Git"], UpdatesRules.Updatable(apps, [], managedEmulators: ["RetroArch", "PCSX2"]).Select(a => a.Id));
+        Assert.True(UpdatesRules.ManagedElsewhere(apps[0], ["RetroArch"]));
+        Assert.False(UpdatesRules.ManagedElsewhere(apps[1], ["RetroArch", "PS2"])); // Short names never match by accident.
     }
 
     [Fact]
