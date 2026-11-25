@@ -280,6 +280,44 @@ public class BackupModuleTests
         Assert.Equal(new CopyEntry("Salvataggi", @"E:\backup", 10, null), CopyEntry.Parse(@" Salvataggi |E:\backup| 10 "));
         Assert.Equal(@"C:\Mondi", CopyEntry.Parse(@"Mondi | E:\snap | 14 | C:\Mondi")!.Origin);
     }
+
+    /// <summary>
+    /// 25 Nov 2026: a project folder looked "16 days behind" with every one of its 648 files in the copy. The database had just been opened
+    /// (its -wal and -shm were there for a moment), and an old -wal was left in the copy.
+    /// </summary>
+    [Fact]
+    public void A_copy_with_every_file_of_the_original_is_in_step_whatever_the_dates_say()
+    {
+        var now = new DateTimeOffset(2026, 11, 25, 19, 40, 0, TimeSpan.Zero);
+        var db = new FileMark(4_096_000, new DateTimeOffset(2026, 11, 3, 10, 0, 0, TimeSpan.Zero));
+        var origin = new FolderState(db.Written, 2, [], new Dictionary<string, FileMark>
+        {
+            [@"data\album.db"] = db,
+            [@"data\covers\a.jpg"] = new(1000, new DateTimeOffset(2026, 10, 1, 0, 0, 0, TimeSpan.Zero)),
+        });
+        // The copy's own dates are older (robocopy keeps the original's): only what is missing or different counts.
+        var copy = new FolderState(new DateTimeOffset(2026, 11, 9, 0, 0, 0, TimeSpan.Zero), 2, [], new Dictionary<string, FileMark>(origin.Index!));
+        var entry = new CopyEntry("Album", @"E:\copie\Album", 7, @"C:\Users\io\Documents\Album");
+        Assert.Null(BackupRules.Copy(entry, copy, true, origin, now));
+
+        // A file of the original changed long ago and never copied: behind, since that change.
+        var changed = new Dictionary<string, FileMark>(origin.Index!) { [@"data\album.db"] = db with { Size = 5_000_000 } };
+        var behind = BackupRules.Copy(entry, copy, true, origin with { Index = changed }, now)!;
+        Assert.Contains("22", behind.Title); // 3 Nov → 25 Nov.
+        Assert.Contains("album.db", behind.Detail);
+        // Changed yesterday: within the days allowed, nothing to say yet.
+        var recent = new Dictionary<string, FileMark>(origin.Index!) { [@"data\new.jpg"] = new(10, now.AddDays(-1)) };
+        Assert.Null(BackupRules.Copy(entry, copy, true, origin with { Index = recent }, now));
+    }
+
+    [Fact]
+    public void Database_and_lock_files_are_not_data()
+    {
+        foreach (var name in new[] { "album.db-wal", "album.db-shm", "x.db-journal", "~$Report.docx", "a.tmp", ".~lock.sheet.ods#", "parent.lock", "Thumbs.db" })
+            Assert.True(BackupRules.Temporary(name), name);
+        foreach (var name in new[] { "album.db", "world.mcworld", "Report.docx", "save.sav" })
+            Assert.False(BackupRules.Temporary(name), name);
+    }
 }
 
 public class WindowsBackupEnvironmentTests : IDisposable

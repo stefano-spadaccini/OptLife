@@ -5,6 +5,9 @@ public sealed class Scheduler(ModuleRunner runner, IReadOnlyList<IModule> module
 {
     private CancellationTokenSource _wake = new();
 
+    /// <summary>How many times "check now" was asked: a task busy when it came runs again as soon as it ends.</summary>
+    private int _asked;
+
     public Task RunAsync(CancellationToken ct) =>
         Task.WhenAll(
             from module in modules
@@ -12,8 +15,15 @@ public sealed class Scheduler(ModuleRunner runner, IReadOnlyList<IModule> module
             // Task.Run: a task that blocks must not delay the start of the others.
             select Task.Run(() => LoopAsync(module, task, ct), CancellationToken.None));
 
-    /// <summary>Cuts every wait short, so all tasks run a round right away ("check now").</summary>
-    public void TriggerNow() => Interlocked.Exchange(ref _wake, new CancellationTokenSource()).Cancel();
+    /// <summary>
+    /// Cuts every wait short, so all tasks run a round right away ("check now"). A task in the middle of a round is not woken (it is not
+    /// waiting): it runs once more when that round ends — on 25 Nov 2026 a check pressed while the Cleanup was weighing a drive was lost.
+    /// </summary>
+    public void TriggerNow()
+    {
+        Interlocked.Increment(ref _asked);
+        Interlocked.Exchange(ref _wake, new CancellationTokenSource()).Cancel();
+    }
 
     private async Task LoopAsync(IModule module, ModuleTask task, CancellationToken ct)
     {
@@ -21,6 +31,7 @@ public sealed class Scheduler(ModuleRunner runner, IReadOnlyList<IModule> module
         var asked = false; // This round was started by "check now" rather than by the clock.
         while (!ct.IsCancellationRequested)
         {
+            var askedBefore = Volatile.Read(ref _asked);
             try
             {
                 // Checked every round, so switching a module on or off takes effect without a restart.
@@ -40,6 +51,12 @@ public sealed class Scheduler(ModuleRunner runner, IReadOnlyList<IModule> module
                 log(L.T($"{name}: giro saltato ({ex.GetType().Name}: {ex.Message})", $"{name}: round skipped ({ex.GetType().Name}: {ex.Message})"));
             }
 
+            // "Check now" came while this round was running: run again at once, as asked (continuous tasks run all the time anyway).
+            if (Volatile.Read(ref _asked) != askedBefore && !task.Continuous)
+            {
+                asked = true;
+                continue;
+            }
             using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct, Volatile.Read(ref _wake).Token);
             asked = false;
             try

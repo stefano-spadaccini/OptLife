@@ -140,7 +140,8 @@ public sealed partial class PanelViewModel : ObservableObject
     [ObservableProperty] private bool _noticeIsError;
 
     /// <summary>How long to wait for the agent after asking it to check; tests set it to zero.</summary>
-    internal TimeSpan AgentGrace { get; set; } = TimeSpan.FromSeconds(2);
+    /// <summary>The longest "check now" waits for the agent to finish every module before saying how far it got (the list keeps updating).</summary>
+    internal TimeSpan AgentGrace { get; set; } = TimeSpan.FromMinutes(3);
 
     // The first thing shown is how the PC is doing right now; problems are one tab away.
     [ObservableProperty, NotifyPropertyChangedFor(nameof(InProblems))] private PanelPage _page = PanelPage.Monitor;
@@ -181,7 +182,9 @@ public sealed partial class PanelViewModel : ObservableObject
     [ObservableProperty] private string _search = "";
     [ObservableProperty] private string _historySummary = "";
 
-    public string CheckLabel => IsChecking ? L.T("CONTROLLO IN CORSO", "CHECKING") : L.T("CONTROLLA ORA", "CHECK NOW");
+    public string CheckLabel => IsChecking ? L.T("IN CORSO…", "WORKING…") : L.T("CONTROLLA ORA", "CHECK NOW");
+
+    partial void OnIsCheckingChanged(bool value) => OnPropertyChanged(nameof(RefreshLabel));
 
     private DateTimeOffset Now => _clock.GetLocalNow();
 
@@ -660,29 +663,93 @@ public sealed partial class PanelViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// "Check now", the same from Home and from Problems (and F5 there): every enabled module looks again — through the agent when it
+    /// runs (it has the rights and the state), here otherwise. It waits for the modules to really finish (not a fixed two seconds:
+    /// on 25 Nov 2026 the Problems list was read again before the slow modules ended, and the button looked dead), the list follows
+    /// as they end, and at the end it says how it went: how many modules looked, how many problems closed, how many are new.
+    /// </summary>
     [RelayCommand]
     private async Task CheckNowAsync()
     {
-        if (IsChecking) return;
+        if (IsChecking)
+        {
+            (Notice, NoticeIsError) = (L.T("Un controllo o un'azione è già in corso: aspetta che finisca.", "A check or an action is already running: wait for it to end."), false);
+            return;
+        }
         IsChecking = true;
+        var before = _store.GetFindings().Select(f => f.Id).ToHashSet();
+        var work = _modules.Where(_runner.IsEnabled).SelectMany(m => m.Tasks.Where(t => !t.Continuous).Select(t => (Module: m, Task: t))).ToList();
+        var modules = work.Select(w => w.Module).Distinct().Count();
+        var started = Now.AddSeconds(-1);
+        var finished = 0;
+        var waitedOut = false;
         try
         {
+            (Notice, NoticeIsError) = (CheckProgress = L.T($"Controllo di {modules} moduli…", $"Checking {modules} modules…"), false);
             if (_requestRunNow())
             {
-                await Task.Delay(AgentGrace);
+                var until = DateTime.UtcNow + AgentGrace;
+                while (true)
+                {
+                    finished = work.Where(w => _runner.ReadStatus(w.Module, w.Task).LastRun is { } at && at >= started).Select(w => w.Module).Distinct().Count();
+                    (Notice, NoticeIsError) = (CheckProgress = L.T($"Controllo in corso: {finished} di {modules} moduli", $"Checking: {finished} of {modules} modules"), false);
+                    Refresh(); // The list follows as modules end.
+                    if (work.All(w => _runner.ReadStatus(w.Module, w.Task).LastRun is { } at && at >= started)) break;
+                    if (DateTime.UtcNow >= until) { waitedOut = true; break; }
+                    await Task.Delay(AgentPoll);
+                }
             }
             else
             {
                 // No agent to ask: run the checks here, off the interface thread.
-                foreach (var module in _modules.Where(_runner.IsEnabled))
-                    foreach (var task in module.Tasks.Where(t => !t.Continuous))
+                foreach (var group in work.GroupBy(w => w.Module))
+                {
+                    foreach (var (module, task) in group)
                         await Task.Run(() => _runner.RunTaskAsync(module, task, CancellationToken.None, onDemand: true));
+                    finished++;
+                    (Notice, NoticeIsError) = (CheckProgress = L.T($"Controllo in corso: {finished} di {modules} moduli", $"Checking: {finished} of {modules} modules"), false);
+                    Refresh();
+                }
             }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            (Notice, NoticeIsError) = (L.T("Il controllo si è fermato: ", "The check stopped: ") + ex.Message, true);
+            return;
         }
         finally
         {
             IsChecking = false;
+            CheckProgress = "";
             Refresh();
         }
+        var after = _store.GetFindings().Select(f => f.Id).ToHashSet();
+        var closed = before.Count(id => !after.Contains(id));
+        var added = after.Count(id => !before.Contains(id));
+        (Notice, NoticeIsError) = (CheckSummary(finished, modules, closed, added, waitedOut), false);
+        LastCheck = Notice;
     }
+
+    /// <summary>"Controllati 18 moduli: 2 problemi chiusi, 1 nuovo." — or how many are still at work when the wait ran out.</summary>
+    internal static string CheckSummary(int finished, int modules, int closed, int added, bool waitedOut)
+    {
+        string Problems(int n, string one, string many) => n == 1 ? one : n.ToString(L.Culture) + many;
+        var counts = L.T($"{Problems(closed, "1 problema chiuso", " problemi chiusi")}, {Problems(added, "1 nuovo", " nuovi")}",
+            $"{Problems(closed, "1 problem closed", " problems closed")}, {Problems(added, "1 new", " new")}");
+        return waitedOut
+            ? L.T($"Controllati {finished} moduli su {modules} (gli altri stanno ancora lavorando: l'elenco si aggiorna da solo): {counts}.",
+                $"Checked {finished} of {modules} modules (the others are still at work: the list updates by itself): {counts}.")
+            : modules == 1 ? L.T($"Controllato 1 modulo: {counts}.", $"Checked 1 module: {counts}.")
+            : L.T($"Controllati {modules} moduli: {counts}.", $"Checked {modules} modules: {counts}.");
+    }
+
+    /// <summary>While a check runs: how far it got, beside the button.</summary>
+    [ObservableProperty] private string _checkProgress = "";
+
+    /// <summary>How the last "check now" went, shown under the button on Home too.</summary>
+    [ObservableProperty] private string _lastCheck = "";
+
+    /// <summary>How often the agent's progress is read while it checks.</summary>
+    internal TimeSpan AgentPoll { get; set; } = TimeSpan.FromMilliseconds(500);
 }

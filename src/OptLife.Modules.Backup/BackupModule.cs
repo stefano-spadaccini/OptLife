@@ -10,6 +10,9 @@ public interface IBackupEnvironment
     /// <summary>Looks through a folder; null when it does not exist. <paramref name="verify"/> files are read back at random.</summary>
     FolderState? Scan(string path, int verify);
 
+    /// <summary>The same, with every file listed by path, size and time, to compare an original with its copy file by file.</summary>
+    FolderState? ScanIndexed(string path, int verify) => Scan(path, verify);
+
     /// <summary>Whether the disk or network share a path lives on is there at all.</summary>
     bool DriveExists(string path);
 
@@ -109,8 +112,10 @@ public sealed class BackupModule : IModule
         {
             ct.ThrowIfCancellationRequested();
             var there = _env.DriveExists(entry.Copy);
-            var copy = there ? _env.Scan(entry.Copy, verify) : null;
-            var origin = entry.Origin is not null && _env.DriveExists(entry.Origin) ? _env.Scan(entry.Origin, 0) : null;
+            // With an original: both listed file by file, so "in step" means every file is there, not that two dates are close.
+            var paired = entry.Origin is not null;
+            var copy = there ? (paired ? _env.ScanIndexed(entry.Copy, verify) : _env.Scan(entry.Copy, verify)) : null;
+            var origin = paired && _env.DriveExists(entry.Origin!) ? _env.ScanIndexed(entry.Origin!, 0) : null;
             var finding = BackupRules.Copy(entry, copy, there, origin, now);
             if (finding is not null) copies.Add(finding);
             picture[L.T("copia · ", "backup · ") + entry.Name] = !there ? L.T("disco non raggiungibile", "disk not reachable")

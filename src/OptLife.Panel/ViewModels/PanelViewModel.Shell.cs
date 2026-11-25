@@ -135,7 +135,8 @@ public sealed partial class PanelViewModel
     /// </summary>
     public bool ShowRefresh => Page is not (PanelPage.Monitor or PanelPage.Intro);
 
-    public string RefreshLabel => Page == PanelPage.View && SelectedView is { IsChecklist: true } or { IsGallery: true } || Page == PanelPage.Problems
+    public string RefreshLabel => IsChecking ? L.T("In corso…", "Working…")
+        : Page == PanelPage.View && SelectedView is { IsChecklist: true } or { IsGallery: true } || Page == PanelPage.Problems
         ? L.T("Controlla ora", "Check now") : L.T("Aggiorna", "Refresh");
 
     /// <summary>F5: a checklist checks its module again, Home and Problems check everything, other pages read the history again.</summary>

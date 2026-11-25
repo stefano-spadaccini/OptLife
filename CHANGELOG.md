@@ -5,6 +5,15 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.3]
+
+### Fixed
+- Data protection: a backup is compared file by file; temporary files (SQLite -wal/-shm/-journal, ~$…, .tmp, .lock,
+  Thumbs.db) and folder dates no longer make a complete backup look behind. Build output folders are skipped.
+- Check now (Home, Problems, F5): a module already busy runs again as soon as it finishes instead of waiting its whole
+  interval; the panel waits for every module, shows the progress, and ends with how many problems closed and how many are
+  new. A check that cannot start now says why.
+
 ## [0.1.2]
 
 ### Fixed

@@ -12,7 +12,8 @@ public sealed class WindowsBackupEnvironment : IBackupEnvironment
 
     // Folders that are rebuilt, not made: they change all the time and no backup takes them.
     private static readonly HashSet<string> Rebuilt = new(StringComparer.OrdinalIgnoreCase)
-        { ".git", ".vs", "bin", "obj", "node_modules", "Library", "Temp", "__pycache__" };
+        // Also build output (artifacts, dist, publish, TestResults): a backup leaves it out, and compared file by file it would all look missing.
+        { ".git", ".vs", ".idea", "bin", "obj", "node_modules", "Library", "Temp", "__pycache__", "artifacts", "dist", "publish", "TestResults" };
 
     public bool DriveExists(string path)
     {
@@ -27,11 +28,16 @@ public sealed class WindowsBackupEnvironment : IBackupEnvironment
         }
     }
 
-    public FolderState? Scan(string path, int verify)
+    public FolderState? Scan(string path, int verify) => Scan(path, verify, index: false);
+
+    public FolderState? ScanIndexed(string path, int verify) => Scan(path, verify, index: true);
+
+    private FolderState? Scan(string path, int verify, bool index)
     {
         var root = Environment.ExpandEnvironmentVariables(path);
         if (!Directory.Exists(root)) return null;
 
+        var marks = index ? new Dictionary<string, FileMark>(StringComparer.OrdinalIgnoreCase) : null;
         var newest = DateTimeOffset.MinValue;
         var files = 0;
         var sample = new List<string>(); // A fair pick without knowing the total in advance (reservoir sampling).
@@ -51,8 +57,12 @@ public sealed class WindowsBackupEnvironment : IBackupEnvironment
                         if (!Rebuilt.Contains(dir.Name)) pending.Push(dir.FullName);
                         continue;
                     }
+                    // A database's -wal and -shm, a lock file: a program's work in progress, not data (and not on both sides alike).
+                    if (BackupRules.Temporary(entry.Name)) continue;
                     files++;
                     if (entry.LastWriteTimeUtc > newest.UtcDateTime) newest = new DateTimeOffset(entry.LastWriteTimeUtc, TimeSpan.Zero);
+                    if (marks is not null && entry is FileInfo file)
+                        marks[Path.GetRelativePath(root, file.FullName)] = new FileMark(file.Length, new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero));
                     if (sample.Count < verify) sample.Add(entry.FullName);
                     else if (verify > 0 && random.Next(files) < verify) sample[random.Next(verify)] = entry.FullName;
                 }
@@ -83,7 +93,8 @@ public sealed class WindowsBackupEnvironment : IBackupEnvironment
                 unreadable.Add(Path.GetRelativePath(root, file));
             }
         }
-        return new FolderState(files == 0 ? DateTimeOffset.MinValue : newest, files, unreadable);
+        // Listed whole only: a folder cut at the limit cannot be compared file by file (the dates are compared instead).
+        return new FolderState(files == 0 ? DateTimeOffset.MinValue : newest, files, unreadable, marks is not null && files < MaxFiles ? marks : null);
     }
 
     public RepoState? Repository(string path)

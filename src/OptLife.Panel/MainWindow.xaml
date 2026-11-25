@@ -681,6 +681,11 @@
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                 <TextBlock Text="{Binding Headline}" FontFamily="{DynamicResource Font.Display}" FontSize="20" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite"/>
                                 <TextBlock Text="{Binding Subline}" Style="{StaticResource Secondary}" Margin="0,2,0,0"/>
+                                <!-- While a check runs, how far it got; afterwards, how it went -->
+                                <TextBlock Text="{Binding CheckProgress}" Style="{StaticResource Secondary}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite"
+                                           Visibility="{Binding CheckProgress, Converter={StaticResource Vis}}"/>
+                                <TextBlock Text="{Binding LastCheck}" Style="{StaticResource Secondary}" Margin="0,4,0,0" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"
+                                           Visibility="{Binding IsChecking, Converter={StaticResource Vis}, ConverterParameter=not}"/>
                             </StackPanel>
                             <Button Grid.Column="2" Style="{StaticResource BtnPrimary}" VerticalAlignment="Center" Margin="16,0,0,0"
                                     Content="{Binding CheckLabel}" Command="{Binding CheckNowCommand}"

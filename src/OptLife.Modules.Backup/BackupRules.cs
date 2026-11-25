@@ -3,9 +3,14 @@ using OptLife.Core;
 
 namespace OptLife.Modules.Backup;
 
-/// <param name="Newest">When the most recently changed file in the folder was changed.</param>
+/// <param name="Newest">When the most recently changed file in the folder was changed (files only: a folder's date moves when a program
+/// merely opens a database in it).</param>
 /// <param name="Unreadable">Files picked at random that could not be read back.</param>
-public sealed record FolderState(DateTimeOffset Newest, int Files, IReadOnlyList<string> Unreadable);
+/// <param name="Index">Every file by its path inside the folder, with size and time: for comparing an original with its copy file by file.
+/// Null when it was not asked for (or the folder is too big to list whole).</param>
+public sealed record FolderState(DateTimeOffset Newest, int Files, IReadOnlyList<string> Unreadable, IReadOnlyDictionary<string, FileMark>? Index = null);
+
+public sealed record FileMark(long Size, DateTimeOffset Written);
 
 /// <param name="Changed">Files changed or new that are not in any commit.</param>
 /// <param name="NewestChange">When the most recent of those was touched.</param>
@@ -56,6 +61,23 @@ public static class BackupRules
                 L.T($"Su {copy.Files.ToString("N0", Lang)} file ne ho riletti alcuni a caso e questi non si aprono: {string.Join(", ", copy.Unreadable.Take(3))}.", $"Out of {copy.Files.ToString("N0", Lang)} files I re-read some at random and these do not open: {string.Join(", ", copy.Unreadable.Take(3))}."),
                 L.T("Una copia che non si legge non è una copia: controlla il disco su cui sta e rifai il backup.", "A backup that cannot be read is not a backup: check the disk it is on and back up again."));
 
+        // Not one path in common: the copy keeps the files in another arrangement (a subfolder, a dated folder), so paths cannot be
+        // matched and the dates are compared instead.
+        if (origin is { Index: { } originFiles } && copy.Index is { } copyFiles && originFiles.Keys.Any(copyFiles.ContainsKey))
+        {
+            // File by file: in step when every file of the original is in the copy, same size, not older. Behind only when something
+            // changed in the original longer ago than the days allowed and is still not in the copy.
+            var missing = Missing(originFiles, copyFiles);
+            var late = missing.Where(m => now - m.Mark.Written > TimeSpan.FromDays(entry.Days)).ToList();
+            if (late.Count == 0) return null;
+            var oldest = late.Min(m => m.Mark.Written);
+            return new NewFinding(key, Severity.Medium,
+                L.T($"La copia di \"{entry.Name}\" è indietro di {Days(now - oldest)}", $"The backup of \"{entry.Name}\" is {Days(now - oldest)} behind"),
+                L.T($"{missing.Count} file dell'originale non sono nella copia, o sono cambiati dopo: {string.Join(", ", late.OrderBy(m => m.Mark.Written).Take(3).Select(m => m.Path))}. Il primo è cambiato il {Day(oldest)}.",
+                    $"{missing.Count} files of the original are not in the backup, or changed after it: {string.Join(", ", late.OrderBy(m => m.Mark.Written).Take(3).Select(m => m.Path))}. The first changed on {Day(oldest)}."),
+                L.T("Rifai il backup o lo snapshot: quello che è cambiato da allora esiste in un posto solo.", "Run the backup or snapshot again: what changed since then exists in one place only."));
+        }
+
         if (origin is not null)
         {
             var behind = origin.Newest - copy.Newest;
@@ -74,6 +96,26 @@ public static class BackupRules
                 L.T($"L'ultimo file scritto in {entry.Copy} è del {Day(copy.Newest)}.", $"The last file written in {entry.Copy} is from {Day(copy.Newest)}."),
                 L.T("Controlla che il backup automatico stia ancora girando, oppure lancialo a mano.", "Check that the automatic backup is still running, or start it by hand."))
             : null;
+    }
+
+    /// <summary>
+    /// The files of the original the copy does not have as they are: missing, of another size, or older there. Two seconds of slack on
+    /// the time, as robocopy allows (FAT and network drives keep times in steps of two seconds).
+    /// </summary>
+    public static IReadOnlyList<(string Path, FileMark Mark)> Missing(IReadOnlyDictionary<string, FileMark> origin, IReadOnlyDictionary<string, FileMark> copy) =>
+        [.. origin.Where(o => !copy.TryGetValue(o.Key, out var c) || c.Size != o.Value.Size || c.Written < o.Value.Written - TimeSpan.FromSeconds(2))
+            .Select(o => (o.Key, o.Value))];
+
+    /// <summary>
+    /// Files that are not data but a program's work in progress: SQLite's -wal, -shm and -journal (they come and go while a database is
+    /// open), Office's ~$ lock files, .tmp, .lock. They are left out on both sides: on 25 Nov 2026 a database merely opened made a
+    /// complete copy look 16 days behind.
+    /// </summary>
+    public static bool Temporary(string name)
+    {
+        var n = name.ToLowerInvariant();
+        return n.EndsWith("-wal") || n.EndsWith("-shm") || n.EndsWith("-journal") || n.StartsWith("~$") || n.StartsWith(".~lock")
+               || n.EndsWith(".tmp") || n.EndsWith(".temp") || n.EndsWith(".lock") || n is "lockfile" or "thumbs.db" or "desktop.ini";
     }
 
     /// <param name="repo">Null when the folder is not a git repository or git cannot be run.</param>
