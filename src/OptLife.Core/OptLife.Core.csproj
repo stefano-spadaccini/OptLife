@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.15" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="OptLife.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The layout that ships with OptLife: generic, valid for anyone. -->
+    <EmbeddedResource Include="Layout\default-layout.json" LogicalName="OptLife.Core.Layout.default-layout.json" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,27 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- The version of every program and module; a release tag v0.1.0 builds with -p:Version=0.1.0. -->
+    <Version Condition="'$(Version)' == ''">0.1.0</Version>
+    <Product>OptLife</Product>
+    <Company>OptLife contributors</Company>
+    <Copyright>© OptLife contributors · MIT licence</Copyright>
+    <!-- Where OptLife looks for its own new versions (GitHub "owner/name"). The release build sets it from the repository it runs in;
+         empty = no update check (a build of one's own). -->
+    <OptLifeRepository Condition="'$(OptLifeRepository)' == ''"></OptLifeRepository>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>OptLifeRepository</_Parameter1>
+      <_Parameter2>$(OptLifeRepository)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+  <!-- L.T("italiano", "english") is used everywhere a text is shown. -->
+  <ItemGroup>
+    <Using Include="OptLife.Core" />
+  </ItemGroup>
+</Project>

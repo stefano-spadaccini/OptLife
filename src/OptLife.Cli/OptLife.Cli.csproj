@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>optlife</AssemblyName>
+    <RootNamespace>OptLife.Cli</RootNamespace>
+    <ApplicationIcon>..\OptLife.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OptLife.Core\OptLife.Core.csproj" />
+  </ItemGroup>
+
+  <Import Project="..\..\Modules.props" />
+
+</Project>

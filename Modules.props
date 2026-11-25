@@ -1,0 +1,29 @@
+<Project>
+  <!--
+    The one and only list of modules shipped with OptLife.
+    Adding a module  = one line here + its folder under src/.
+    Removing a module = delete its line (and folder). Nothing else references a module.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Errors\OptLife.Modules.Errors.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Monitor\OptLife.Modules.Monitor.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Games\OptLife.Modules.Games.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Overlay\OptLife.Modules.Overlay.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Setup\OptLife.Modules.Setup.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Backup\OptLife.Modules.Backup.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Cleanup\OptLife.Modules.Cleanup.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Reminders\OptLife.Modules.Reminders.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Tools\OptLife.Modules.Tools.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Drivers\OptLife.Modules.Drivers.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.FirstSetup\OptLife.Modules.FirstSetup.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Emulation\OptLife.Modules.Emulation.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Scheduler\OptLife.Modules.Scheduler.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Startup\OptLife.Modules.Startup.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Updates\OptLife.Modules.Updates.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Audio\OptLife.Modules.Audio.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Security\OptLife.Modules.Security.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Space\OptLife.Modules.Space.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Wifi\OptLife.Modules.Wifi.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\OptLife.Modules.Library\OptLife.Modules.Library.csproj" />
+  </ItemGroup>
+</Project>

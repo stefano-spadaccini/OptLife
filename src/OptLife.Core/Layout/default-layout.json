@@ -1,0 +1,40 @@
+{
+  "name": "OptLife",
+  "places": [
+    { "path": "{games}", "it": "Giochi che non passano da un launcher", "en": "Games that do not come from a launcher" },
+    { "path": "{games}\\Repack", "it": "Giochi portatili e repack, uno per cartella", "en": "Portable and repacked games, one per folder" },
+    { "path": "{games}\\Emulazione", "it": "Giochi per gli emulatori, una cartella per console (e BIOS)", "en": "Games for emulators, one folder per console (and BIOS)" },
+    { "path": "{software}", "it": "Programmi portatili (che non si installano), uno per cartella", "en": "Portable programs (that do not install), one per folder" },
+    { "path": "{emulators}", "it": "Emulatori, divisi per famiglia di console", "en": "Emulators, by console family" },
+    { "path": "{backups}", "it": "Copie di sicurezza dei salvataggi e dei documenti", "en": "Backup copies of saves and documents" },
+    { "path": "{hubPath}", "it": "L'unica cartella sul Desktop: dentro, i collegamenti divisi per sezione", "en": "The only folder on the Desktop: inside, shortcuts by section", "presets": [ "hub" ] },
+    { "path": "{hubPath}\\{section}", "it": "Sezione della Hub", "en": "Hub section", "each": "hubSections", "presets": [ "hub" ] },
+    { "path": "{desktopInbox}", "it": "Ciò che dal Desktop non è un collegamento", "en": "What on the Desktop is not a shortcut", "presets": [ "clean" ] }
+  ],
+  "rules": [
+    { "module": "cleanup", "key": "tidy", "line": "%USERPROFILE%\\Desktop | {hub}, desktop.ini | {inbox}", "presets": [ "hub" ],
+      "it": "Pulizia: sul Desktop solo la Hub, il resto in \"{inboxName}\"", "en": "Cleanup: only the Hub on the Desktop, the rest into \"{inboxName}\"" },
+    { "module": "cleanup", "key": "tidy", "line": "C:\\Users\\Public\\Desktop | desktop.ini | {inbox}", "presets": [ "hub" ],
+      "it": "Pulizia: Desktop pubblico vuoto", "en": "Cleanup: empty public Desktop" },
+    { "module": "cleanup", "key": "tidy", "line": "%USERPROFILE%\\Desktop | *.lnk, *.url, desktop.ini | {desktopInbox}", "presets": [ "clean" ],
+      "it": "Pulizia: sul Desktop solo i collegamenti, il resto in {desktopInbox}", "en": "Cleanup: only shortcuts on the Desktop, the rest into {desktopInbox}" },
+    { "module": "cleanup", "key": "crowded", "line": "%USERPROFILE%\\Desktop | 30", "presets": [ "report" ],
+      "it": "Pulizia: avvisa se sul Desktop ci sono più di 30 elementi", "en": "Cleanup: warn when the Desktop holds more than 30 items" },
+    { "module": "cleanup", "key": "shortcuts", "line": "{hubPath}", "presets": [ "hub" ],
+      "it": "Pulizia: controlla i collegamenti della Hub", "en": "Cleanup: check the Hub's shortcuts" },
+    { "module": "cleanup", "key": "shortcuts", "line": "%USERPROFILE%\\Desktop", "presets": [ "report", "clean" ],
+      "it": "Pulizia: avvisa dei collegamenti rotti sul Desktop", "en": "Cleanup: warn about broken shortcuts on the Desktop" },
+    { "module": "cleanup", "key": "watch", "line": "{systemDrive}\\ | Games go in {games}, portable programs in {software}.",
+      "it": "Pulizia: avvisa se compare qualcosa di nuovo in {systemDrive}\\", "en": "Cleanup: warn when something new appears in {systemDrive}\\" },
+    { "module": "cleanup", "key": "watch", "line": "{gamesDrive}\\ | Games that do not come from a launcher go in {games}\\Repack.", "skipIfSame": "{gamesDrive}|{systemDrive}",
+      "it": "Pulizia: avvisa se compare qualcosa di nuovo in {gamesDrive}\\", "en": "Cleanup: warn when something new appears in {gamesDrive}\\" },
+    { "module": "cleanup", "key": "heavy", "line": "%USERPROFILE%\\Downloads | 1 | 60",
+      "it": "Pulizia: avvisa se i Download si riempiono", "en": "Cleanup: warn when Downloads fill up" },
+    { "module": "emulation", "key": "emulators", "value": "{emulators}",
+      "it": "Emulazione: emulatori in {emulators}", "en": "Emulation: emulators in {emulators}" },
+    { "module": "emulation", "key": "games", "value": "{games}\\Emulazione",
+      "it": "Emulazione: giochi in {games}\\Emulazione", "en": "Emulation: games in {games}\\Emulazione" },
+    { "module": "library", "key": "pcFolders", "line": "{games}\\Repack",
+      "it": "Libreria: i giochi portatili di {games}\\Repack", "en": "Library: the portable games in {games}\\Repack" }
+  ]
+}

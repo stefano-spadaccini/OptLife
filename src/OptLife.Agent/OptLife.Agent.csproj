@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinExe: runs in the background with no console window. -->
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>optlife-agent</AssemblyName>
+    <RootNamespace>OptLife.Agent</RootNamespace>
+    <ApplicationIcon>..\OptLife.ico</ApplicationIcon>
+    <!-- Windows Forms only for the notification-area icon: the lightest way to have one. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- Always running on a PC short of RAM: prefer a small footprint over throughput. -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OptLife.Core\OptLife.Core.csproj" />
+  </ItemGroup>
+
+  <Import Project="..\..\Modules.props" />
+
+</Project>

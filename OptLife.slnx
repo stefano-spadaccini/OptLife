@@ -1,0 +1,31 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OptLife.Agent/OptLife.Agent.csproj" />
+    <Project Path="src/OptLife.Cli/OptLife.Cli.csproj" />
+    <Project Path="src/OptLife.Core/OptLife.Core.csproj" />
+    <Project Path="src/OptLife.Modules.Backup/OptLife.Modules.Backup.csproj" />
+    <Project Path="src/OptLife.Modules.Drivers/OptLife.Modules.Drivers.csproj" />
+    <Project Path="src/OptLife.Modules.Cleanup/OptLife.Modules.Cleanup.csproj" />
+    <Project Path="src/OptLife.Modules.Errors/OptLife.Modules.Errors.csproj" />
+    <Project Path="src/OptLife.Modules.Games/OptLife.Modules.Games.csproj" />
+    <Project Path="src/OptLife.Modules.Monitor/OptLife.Modules.Monitor.csproj" />
+    <Project Path="src/OptLife.Modules.Overlay/OptLife.Modules.Overlay.csproj" />
+    <Project Path="src/OptLife.Modules.Reminders/OptLife.Modules.Reminders.csproj" />
+    <Project Path="src/OptLife.Modules.Setup/OptLife.Modules.Setup.csproj" />
+    <Project Path="src/OptLife.Modules.Tools/OptLife.Modules.Tools.csproj" />
+    <Project Path="src/OptLife.Modules.FirstSetup/OptLife.Modules.FirstSetup.csproj" />
+    <Project Path="src/OptLife.Modules.Emulation/OptLife.Modules.Emulation.csproj" />
+    <Project Path="src/OptLife.Modules.Scheduler/OptLife.Modules.Scheduler.csproj" />
+    <Project Path="src/OptLife.Modules.Startup/OptLife.Modules.Startup.csproj" />
+    <Project Path="src/OptLife.Modules.Updates/OptLife.Modules.Updates.csproj" />
+    <Project Path="src/OptLife.Modules.Audio/OptLife.Modules.Audio.csproj" />
+    <Project Path="src/OptLife.Modules.Security/OptLife.Modules.Security.csproj" />
+    <Project Path="src/OptLife.Modules.Space/OptLife.Modules.Space.csproj" />
+    <Project Path="src/OptLife.Modules.Wifi/OptLife.Modules.Wifi.csproj" />
+    <Project Path="src/OptLife.Modules.Library/OptLife.Modules.Library.csproj" />
+    <Project Path="src/OptLife.Panel/OptLife.Panel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OptLife.Tests/OptLife.Tests.csproj" />
+  </Folder>
+</Solution>

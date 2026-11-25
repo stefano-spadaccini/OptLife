@@ -1,0 +1,28 @@
+<Application x:Class="OptLife.Panel.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:OptLife.Panel"
+             ShutdownMode="OnMainWindowClose">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- The active theme comes first: replacing this entry restyles everything. -->
+                <ResourceDictionary Source="Themes/Mono.xaml"/>
+                <ResourceDictionary Source="Styles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <local:IsConverter x:Key="Is"/>
+            <local:VisibleConverter x:Key="Vis"/>
+            <local:FileIconConverter x:Key="FileIcon"/>
+            <local:SentenceConverter x:Key="Sentence"/>
+            <local:LevelIconConverter x:Key="LevelIconOf"/>
+            <local:HeadingVisibilityConverter x:Key="HeadingVis"/>
+            <local:NoticeLevelConverter x:Key="NoticeLevel"/>
+            <local:WorryVisibilityConverter x:Key="WorryVis"/>
+            <local:PngImageConverter x:Key="PngImage"/>
+            <local:FileImageConverter x:Key="FileImage"/>
+            <local:SoftImageConverter x:Key="SoftImage"/>
+            <local:LargeImageConverter x:Key="LargeImage"/>
+            <local:CoverColorConverter x:Key="CoverColor"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

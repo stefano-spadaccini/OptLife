@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>optlife-panel</AssemblyName>
+    <RootNamespace>OptLife.Panel</RootNamespace>
+    <ApplicationIcon>..\OptLife.ico</ApplicationIcon>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <ProjectReference Include="..\OptLife.Core\OptLife.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="OptLife.Tests" />
+  </ItemGroup>
+
+  <Import Project="..\..\Modules.props" />
+
+</Project>

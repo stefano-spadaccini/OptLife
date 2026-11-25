@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\OptLife.Core\OptLife.Core.csproj" />
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.15" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="OptLife.Tests" />
+  </ItemGroup>
+
+</Project>
