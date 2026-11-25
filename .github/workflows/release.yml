@@ -70,6 +70,6 @@ jobs:
           $lines = Get-Content CHANGELOG.md
           $start = ($lines | Select-String -Pattern "^## \[$([regex]::Escape($v))\]" | Select-Object -First 1).LineNumber
           $notes = if ($start) { ($lines[$start..($lines.Count - 1)] | ForEach-Object -Begin { $stop = $false } -Process { if ($_ -match '^## ') { $stop = $true }; if (-not $stop) { $_ } }) -join "`n" } else { "OptLife $v" }
-          $notes += "`n`n**SHA-256** (check it before running the installer):`n``````n$(Get-Content artifacts/SHA256SUMS.txt)`n``````"
+          $notes += "`n`n**SHA-256** (check it before running the installer):`n```````n$(Get-Content artifacts/SHA256SUMS.txt)`n``````"
           Set-Content notes.md $notes -Encoding utf8
           gh release create "v$v" artifacts/OptLife-Setup-$v.exe artifacts/SHA256SUMS.txt --draft --title "OptLife $v" --notes-file notes.md
