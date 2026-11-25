@@ -156,6 +156,11 @@ public sealed class SchedulerModule : IModule
         var now = ctx.Now;
         var gaming = ctx.Settings.GetBool("waitForGames") && ctx.ReadLive().Any(v => v.Key.StartsWith("game.", StringComparison.Ordinal));
         _waiting.Clear();
+        // When each job last finished, read once before anything starts: a job launched in this round that ends at once
+        // must not set off its "after" jobs in the same round (they follow on the next one), whatever the thread timing.
+        var ended = new Dictionary<string, DateTimeOffset?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in jobs.Select(j => j.Name).Distinct(StringComparer.OrdinalIgnoreCase))
+            ended[name] = Load(ctx, name) is { Running: false, LastEnd: { } end } ? end : null;
 
         foreach (var job in jobs.Where(j => j.Problem is null))
         {
@@ -177,7 +182,7 @@ public sealed class SchedulerModule : IModule
             var asked = ctx.GetState(RequestKey(job.Name)) is not null;
             var reason = asked
                 ? L.T("avviato da te", "started by you")
-                : SchedulerRules.Reason(job, state, now, _env.BootTime, name => Load(ctx, name) is { Running: false, LastEnd: { } end } ? end : null);
+                : SchedulerRules.Reason(job, state, now, _env.BootTime, name => ended.TryGetValue(name, out var end) ? end : Load(ctx, name) is { Running: false, LastEnd: { } e } ? e : null);
             if (reason is null) continue;
             if (gaming && !asked)
             {
