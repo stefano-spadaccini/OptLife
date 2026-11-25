@@ -101,7 +101,7 @@ public sealed class UpdatesTests : IDisposable
     [Fact]
     public void The_winget_table_is_read_by_its_columns()
     {
-        var apps = UpdatesRules.ParseWinget("\r  - \r  \\ \r" + Sample.Replace("\n", "\r\n"));
+        var apps = UpdatesRules.ParseWinget("\r  - \r  \\ \r" + Sample.Replace("\r\n", "\n").Replace("\n", "\r\n"));
         Assert.Equal(5, apps.Count);
         Assert.Equal(new AppUpdate("HWiNFO® 64", "REALiX.HWiNFO", "8.54", "8.60"), apps[2]);
         Assert.Equal("< 175.2.0.13423", apps[3].Installed);
